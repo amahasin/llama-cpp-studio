@@ -1,0 +1,23 @@
+{
+  "name": "llama-cpp-studio",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "Standalone local application for llama.cpp: install official builds, manage GGUF models and their launch flags, run llama-server and use its OpenAI-compatible API. Zero npm dependencies — built from the DeepSeek Harness llama.cpp plugin.",
+  "bin": {
+    "llama-studio": "src/main.js"
+  },
+  "main": "src/main.js",
+  "scripts": {
+    "build": "node build.js",
+    "start": "node src/main.js",
+    "status": "node src/main.js --status",
+    "test": "node tests/smoke.js && node tests/paths.test.js && node tests/vision.test.js && node tests/router.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "win32"
+  ]
+}

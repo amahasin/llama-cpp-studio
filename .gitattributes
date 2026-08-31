@@ -1,0 +1,17 @@
+# Keep line endings deterministic. Git's autocrlf was rewriting every file on
+# checkout, which is noise in diffs and actively wrong for the two file types
+# Windows tooling is picky about.
+* text=auto eol=lf
+
+# cmd.exe and PowerShell want CRLF. pack.js writes start.cmd with CRLF for
+# exactly this reason — see the LAUNCHER template.
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.rc  text eol=crlf
+
+# Binary-ish assets git should not touch.
+*.exe  binary
+*.dll  binary
+*.ico  binary
+*.gguf binary
+*.zip  binary

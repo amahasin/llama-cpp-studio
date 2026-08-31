@@ -1,0 +1,30 @@
+# Managed runtime state — installed llama.cpp builds, imported models, logs,
+# the download cache and the desktop shell's WebView2 profile. Well over 1 GB,
+# machine-specific, and the WebView profile holds browser credential databases.
+# The app recreates all of it; none of it is source.
+/data/
+
+# Scratch space for the test suites (tests/*.test.js write here).
+/.tmp/
+
+# Vendored React UMD builds — `node build.js` copies these in from a local
+# node_modules, and `pack.js` requires them present. Not our code.
+/web/vendor/react.production.min.js
+/web/vendor/react-dom.production.min.js
+
+# Written by pack.js when it makes the folder self-contained.
+/PORTABLE.md
+/runtime/node.exe
+
+# Build outputs of the native desktop shell and installer.
+/native/build/
+/native/dist/*.zip
+/llama-studio.exe
+/llama-cpp-studio-setup.exe
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
