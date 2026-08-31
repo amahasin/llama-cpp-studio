@@ -198,6 +198,7 @@ standalone/
     ├── tray.test.js         the tray reports the real state, not a fixed one
     ├── idle.test.js         an unused model gives its memory back; a busy one does not
     ├── mtp.test.js          MTP head detection, tagging and the draft-model argv
+    ├── progress.test.js     the load fraction the router streams, across stages
     ├── smoke.js             boots the real app and drives it over RPC
     ├── paths.test.js        the folder stays self-contained when it moves
     ├── vision.test.js       the per-model vision toggle, end to end
@@ -343,6 +344,35 @@ child servers. Router mode needs a llama.cpp build with `--models-preset`;
 an older one is refused at launch with a message saying so rather than started
 blind. The generated preset is written to `<data>\configs\router-presets.ini`;
 it is regenerated every start, so edit Model settings rather than that file.
+
+## Model loading progress
+
+Loading a 20GB model takes minutes, and the dashboard used to show a bare
+`loading` pill for all of it. It now shows a real percentage:
+
+```
+loading · 42.2%      [text_model]
+loading · 75%        [mmproj_model]
+```
+
+The figure comes from llama.cpp itself, and only in **router mode**: the router
+streams `model_status` events on `GET /models/sse` carrying a 0–1 fraction.
+Neither `/models` nor `/v1/models` includes it, so no amount of polling would
+have found it — following the stream is the only way to see it.
+
+A model loads in stages — text weights, then the vision projector, then the
+draft head — each reporting its own 0–1. Showing those raw would restart the
+bar at every boundary, so the stages are weighted into one figure: finishing
+the first of two stages reads 50%.
+
+Where a fraction is not available the pill falls back to elapsed time
+(`loading · 47s`). That covers single-model mode, which has no such stream, and
+llama.cpp builds older than the endpoint — those answer 404, the subscriber
+stops, and nothing else changes.
+
+> Note: llama.cpp warns that memory-mapped loading can report inaccurate
+> progress on some platforms. `--load-mode none` gives exact figures at the
+> cost of slower loading.
 
 ## Multi-token prediction (MTP)
 
@@ -562,7 +592,7 @@ node tests\vision.test.js          # the per-model vision toggle, end to end
 node tests\router.test.js          # router mode: presets, ids, load/unload
 node tests\units.test.js           # the pure modules, no app boot
 node tests\secrets.test.js         # secret redaction and its round trip
-npm test                           # all eleven, with a summary table
+npm test                           # all twelve, with a summary table
 ```
 
 `units.test.js` is the fast one and needs nothing installed: it feeds generated

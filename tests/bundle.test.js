@@ -41,7 +41,7 @@ function main() {
     /present: mtp-pill/.test(output) && /present: mtp-pill-render/.test(output))
   check('and MTP can be turned off per model',
     /present: mtp-switch/.test(output))
-  check('a loading model shows how long it has been loading',
+  check('a loading model shows its progress',
     /present: loading-elapsed/.test(output))
 
   return finish('bundle.test.js')

@@ -24,6 +24,10 @@
     this._busy = false
     this._detachLogs = undefined
     this._metricsDispose = undefined
+    // Per-model load fractions, fed by the router's /models/sse stream.
+    this._progressByModel = {}
+    this._progressStop = undefined
+    this._progressHandle = undefined
     this.lastError = undefined
     this._generation = 0
   }
@@ -675,6 +679,7 @@
     // that is the difference between "working" and "stuck".
     const since = this._loadingSince || (this._loadingSince = {})
     const now = Date.now()
+    const self = this
 
     const models = ((r.data && r.data.data) || [])
       .filter(function (m) { return known.has(m.id) })
@@ -698,10 +703,132 @@
         // Only present while it is actually working. Set to undefined instead,
         // it would cross the command boundary as null — jsonSafe() rewrites
         // undefined that way — and read as a number that is not one.
-        if (working) row.workingSeconds = Math.max(0, Math.round((now - since[m.id]) / 1000))
+        if (working) {
+          row.workingSeconds = Math.max(0, Math.round((now - since[m.id]) / 1000))
+          // A real fraction when the build streams one; the elapsed seconds
+          // above are what older builds are left with.
+          const progress = self._progressFor(m.id)
+          if (progress !== undefined) {
+            row.loadPercent = progress.percent
+            row.loadStage = progress.stage
+          }
+        }
         return row
       })
     return { ok: true, models }
+  }
+
+  /**
+   * Follow the router's progress stream.
+   *
+   * llama.cpp reports a real 0..1 load fraction, but only over server-sent
+   * events on /models/sse — /models and /v1/models carry the state and nothing
+   * else, so polling can never see it. The stream is a long-lived curl whose
+   * output is read incrementally, the same way the log store follows
+   * llama-server's own output.
+   *
+   * Builds without the endpoint answer 404 and curl exits; nothing is retried
+   * and routerModels() simply reports elapsed seconds instead, which is what it
+   * did before this existed.
+   */
+  ServerManager.prototype._followProgress = async function (base) {
+    this._stopProgress()
+    this._progressByModel = {}
+
+    const argv = [LLAMA.exec.TOOLS.curl, '-sN', '--no-buffer', '-m', '86400']
+    const key = (this.deps.config.get('server') || {}).apiKey
+    if (key) await this.deps.exec.pushSecretHeaders(argv, { Authorization: 'Bearer ' + key })
+    argv.push(base + '/models/sse')
+
+    let handle
+    try {
+      handle = this.deps.subprocess.spawn({
+        argv,
+        stdio: { stdout: { maxBytes: 256 * 1024 }, stderr: { maxBytes: 16 * 1024 } },
+      })
+    } catch (_e) {
+      return
+    }
+
+    let offset = 0
+    let pending = ''
+    const self = this
+
+    const drain = function () {
+      if (!handle.collected || !handle.collected.stdout) return
+      const r = handle.collected.stdout.readFrom(offset)
+      offset = r.nextOffset
+      if (!r.text) return
+      pending += r.text
+      const lines = pending.split('\n')
+      // Whatever is after the last newline is half an event; keep it.
+      pending = lines.pop()
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed.startsWith('data:')) continue
+        const event = util.tryParseJson(trimmed.slice(5).trim())
+        if (event === undefined || typeof event.model !== 'string') continue
+        self._applyProgress(event)
+      }
+      // A stream that ran away with itself must not grow without bound.
+      if (pending.length > 64 * 1024) pending = ''
+    }
+
+    this._progressStop = this.deps.timers.interval(drain, 400)
+    this._progressHandle = handle
+    handle.done.then(function () { self._stopProgress() }).catch(function () { self._stopProgress() })
+  }
+
+  /** One /models/sse event into the per-model progress table. */
+  ServerManager.prototype._applyProgress = function (event) {
+    const table = this._progressByModel || (this._progressByModel = {})
+    const data = event.data || {}
+    const status = data.status
+
+    if (status !== undefined && status !== 'loading') {
+      // loaded, unloaded, sleeping — nothing left to report.
+      delete table[event.model]
+      return
+    }
+    const p = data.progress
+    if (!util.isPlainObject(p)) return
+    // A stage-change event carries only { stage }; keep the last fraction
+    // rather than blanking the bar between stages.
+    const previous = table[event.model] || {}
+    const stages = Array.isArray(p.stages) ? p.stages : previous.stages
+    const current = p.current !== undefined ? p.current : (p.stage !== undefined ? p.stage : previous.current)
+    const value = typeof p.value === 'number' ? p.value : previous.value
+
+    table[event.model] = { stages, current, value }
+  }
+
+  /**
+   * The overall fraction, across stages. A model loads its text weights, then
+   * its projector, then its draft head — reporting each stage's own 0..1 would
+   * show the bar restarting, so the stages are weighted equally into one.
+   */
+  ServerManager.prototype._progressFor = function (id) {
+    const entry = (this._progressByModel || {})[id]
+    if (entry === undefined || typeof entry.value !== 'number') return undefined
+    const stages = Array.isArray(entry.stages) && entry.stages.length > 0 ? entry.stages : [entry.current]
+    const index = Math.max(0, stages.indexOf(entry.current))
+    const fraction = (index + Math.min(1, Math.max(0, entry.value))) / stages.length
+    return {
+      percent: Math.round(Math.min(1, Math.max(0, fraction)) * 1000) / 10,
+      stage: entry.current,
+      stages,
+    }
+  }
+
+  ServerManager.prototype._stopProgress = function () {
+    if (typeof this._progressStop === 'function') {
+      try { this._progressStop() } catch (_e) { /* noop */ }
+    }
+    this._progressStop = undefined
+    if (this._progressHandle !== undefined) {
+      try { this._progressHandle.terminate() } catch (_e) { /* noop */ }
+    }
+    this._progressHandle = undefined
   }
 
   ServerManager.prototype._routerCommand = async function (path, id) {
@@ -913,6 +1040,13 @@
     this._setState('RUNNING')
     proc.readyAt = Date.now()
     proc.health = healthStatus
+
+    // The router streams a real load fraction; nothing else does. Failing to
+    // subscribe is not a startup failure — the dashboard falls back to elapsed
+    // seconds, which is all older builds ever offered.
+    if (proc.router === true) {
+      this._followProgress('http://' + proc.host + ':' + proc.port).catch(function () { /* noop */ })
+    }
     deps.log('server RUNNING: ' + proc.endpoint + ' (pid ' + proc.pid + ', backend ' + proc.backend
       + (proc.router
         ? ', router over ' + proc.sections.length + ' model' + (proc.sections.length === 1 ? '' : 's')
@@ -971,6 +1105,9 @@
         }
       }
       if (typeof this._detachLogs === 'function') { this._detachLogs(); this._detachLogs = undefined }
+      this._stopProgress()
+      this._progressByModel = {}
+      this._loadingSince = {}
       this.process = undefined
       this._setState('STOPPED')
       return { ok: true, wasRunning: true }

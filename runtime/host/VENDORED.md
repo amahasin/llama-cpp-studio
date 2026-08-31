@@ -54,7 +54,7 @@ repository was unavailable.
 | `modules/gguf.js` | keeps `*.nextn_predict_layers`, counts `*.nextn.*` tensors, reports `nextnPredictLayers` and `hasMtp` from both summarizers | Qwen3.6 carries its MTP head inside the model file, so there is no companion to detect |
 | `modules/exec.js` | the streaming GGUF scanner keeps the same key and counts the same tensors | the header-window parser is not used for every model |
 | `modules/commandBuilder.js` | `spec-type` option def, emitted from `profile.specType` | the flag that actually enables speculative decoding |
-| `modules/server.js` | `routerModels()` reports `workingSeconds` while a model is loading or unloading | llama.cpp exposes no load percentage at any verbosity, so elapsed time is the only honest signal |
+| `modules/server.js` | `_followProgress()` / `_applyProgress()` / `_progressFor()` / `_stopProgress()`, subscribing to the router's `/models/sse`; `routerModels()` reports `loadPercent`, `loadStage` and `workingSeconds` | llama.cpp streams a real 0-1 load fraction, but only over SSE — polling `/models` never sees it. Elapsed seconds remain the fallback for single-model mode and older builds |
 | `modules/commandBuilder.js` | `spec-draft-model` option def, emitted from `profile.draftModel` | the flag llama.cpp takes an MTP head through |
 | `modules/profiles.js` | `mtpPath` and `mtp` profile fields | the per-model switch has to persist |
 | `modules/api.js` | `models.detectMtp` command | mirrors `models.detectMmproj` |
@@ -81,7 +81,7 @@ npm run patch-ui
 | `download-rate-units` / `install-rate-units` | download speed is formatted with `fmtBytes(...) + '/s'` | it used `fmtRate`, the tokens/second formatter, so a 6 MB/s download read "6465214.8 tok/s" |
 | `mtp-pill` / `mtp-pill-render` | model cards carry an `mtp` tag | the library gave no sign which models ship a head |
 | `mtp-form` / `mtp-save` / `mtp-switch` | Model settings gains a Speculative decoding switch | otherwise MTP cannot be turned off for a model |
-| `loading-elapsed` | a loading model shows how long it has been loading | a bare "loading" pill on a 20GB model is minutes with no sign of life |
+| `loading-elapsed` | a loading model shows a percentage, falling back to elapsed time | a bare "loading" pill on a 20GB model is minutes with no sign of life |
 
 The first two depend on the reverse proxy in `src/http/proxy.js`, and the last
 four are the front end for `src/idle.js` — both this app's own code, unaffected
