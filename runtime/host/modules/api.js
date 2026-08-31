@@ -215,6 +215,37 @@
     return { ok: true, section: wanted[0], key: wanted[1], value: typeof value === 'string' ? value : '' }
   }
 
+  /**
+   * Anything that changes what the library says a model should be launched with
+   * has to reach a running router, which reads its preset file once at startup
+   * and never again. Without this, saving a model's flags did nothing until the
+   * server was restarted — the model kept loading with the flags that were
+   * current when the router came up, which reads as "it loaded with default
+   * settings".
+   *
+   * Best effort on purpose: the save itself succeeded, and a router that will
+   * not re-read its preset is a warning on the result, not a failed save.
+   */
+  Manager.prototype._afterLibraryChange = async function (result) {
+    if (!result || result.ok !== true) return result
+    if (!this.server) return result
+    try {
+      const refreshed = await this.server.refreshRouterPreset()
+      if (refreshed.ok === true && refreshed.refreshed === true) {
+        result.routerRefreshed = true
+      } else if (refreshed.ok === false) {
+        result.warnings = (result.warnings || []).concat([
+          refreshed.message || 'The running router did not pick up the new settings; restart the server.',
+        ])
+      }
+    } catch (err) {
+      result.warnings = (result.warnings || []).concat([
+        'Could not refresh the running router: ' + String(err && err.message ? err.message : err),
+      ])
+    }
+    return result
+  }
+
   // ---------- command router ----------
 
   Manager.prototype.cmd = async function (method, args) {
@@ -268,10 +299,12 @@
         }
 
         case 'models.list': return this.models.list()
-        case 'models.import': return this.models.importModel(a)
+        case 'models.import': return this._afterLibraryChange(await this.models.importModel(a))
         case 'models.download': return this.models.downloadModel(a)
         case 'models.cancelDownload': return this.models.cancelDownload(String(a.id || ''))
-        case 'models.delete': return this.models.deleteModel(String(a.id || ''), { deleteCompanion: a.deleteCompanion === true })
+        case 'models.delete':
+          return this._afterLibraryChange(
+            await this.models.deleteModel(String(a.id || ''), { deleteCompanion: a.deleteCompanion === true }))
         case 'models.rescan': return this.models.rescan(String(a.id || ''))
         case 'models.inspect':
           if (a.id) {
@@ -282,9 +315,12 @@
           return this.models.inspectFile(String(a.path || ''))
         case 'models.hfFiles': return this.models.hfListFiles(a.repo)
         case 'models.settings': return this.models.getSettings(String(a.id || ''))
-        case 'models.saveSettings': return this.models.saveSettings(String(a.id || ''), a.settings)
-        case 'models.resetSettings': return this.models.resetSettings(String(a.id || ''))
-        case 'models.addFlag': return this.models.addFlag(String(a.id || ''), a.flag, a.value)
+        case 'models.saveSettings':
+          return this._afterLibraryChange(await this.models.saveSettings(String(a.id || ''), a.settings))
+        case 'models.resetSettings':
+          return this._afterLibraryChange(await this.models.resetSettings(String(a.id || '')))
+        case 'models.addFlag':
+          return this._afterLibraryChange(await this.models.addFlag(String(a.id || ''), a.flag, a.value))
         case 'models.detectMtp': {
           if (a.id) {
             const m = await this.models.get(String(a.id))

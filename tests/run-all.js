@@ -19,6 +19,7 @@ const SUITES = [
   ['idle.test.js', 'an unused model gives its memory back, a busy one never does'],
   ['mtp.test.js', 'multi-token-prediction heads: detection, tagging and the argv'],
   ['progress.test.js', 'the load fraction the router streams, weighted across stages'],
+  ['preset.test.js', 'changed launch flags reach a router that is already running'],
   ['smoke.js', 'boots the real app and drives it over RPC'],
   ['paths.test.js', 'the folder stays self-contained when it moves'],
   ['vision.test.js', 'the per-model vision toggle, end to end'],

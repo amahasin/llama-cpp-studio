@@ -44,6 +44,7 @@ const NODE_GLOBALS = {
   setInterval: 'readonly',
   clearInterval: 'readonly',
   URL: 'readonly',
+  URLSearchParams: 'readonly',
   fetch: 'readonly',
   AbortController: 'readonly',
   globalThis: 'readonly',

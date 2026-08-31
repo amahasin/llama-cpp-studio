@@ -148,6 +148,44 @@ async function main() {
     const wrongCookie = await fetch(base + '/llama/', { headers: { cookie: 'llama_session=nope' } })
     check('a wrong cookie is refused', wrongCookie.status === 403, String(wrongCookie.status))
 
+    // ---- reading about a model must not load it ----
+    //
+    // In router mode llama.cpp loads a model just to answer a question about
+    // it: GET /props?model=X loads X. With one model allowed at a time, simply
+    // opening the Chat tab could evict whatever was loaded — the "it loaded the
+    // model again" nobody asked for. A GET is told not to; a POST still loads.
+    {
+      await fetch(base + '/props?model=gemma', { headers: auth })
+      const seen = upstream.seen[upstream.seen.length - 1]
+      check('a GET naming a model is marked no-autoload',
+        /autoload=false/.test(seen.url), seen.url)
+      check('and keeps the model it asked about', /model=gemma/.test(seen.url), seen.url)
+    }
+    {
+      await fetch(base + '/props', { headers: auth })
+      const seen = upstream.seen[upstream.seen.length - 1]
+      check('a GET naming no model is left alone', !/autoload/.test(seen.url), seen.url)
+    }
+    {
+      await fetch(base + '/props?model=gemma&autoload=true', { headers: auth })
+      const seen = upstream.seen[upstream.seen.length - 1]
+      check('an explicit autoload choice is respected', /autoload=true/.test(seen.url), seen.url)
+    }
+    {
+      await fetch(base + '/echo?model=gemma', {
+        method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, auth), body: '{}',
+      })
+      const seen = upstream.seen[upstream.seen.length - 1]
+      check('a POST is never touched — that is a real request, and it should load',
+        !/autoload/.test(seen.url), seen.url)
+    }
+    {
+      await fetch(base + '/llama/props?model=gemma', { headers: auth })
+      const seen = upstream.seen[upstream.seen.length - 1]
+      check('the prefix is still stripped when the query is rewritten',
+        seen.url.startsWith('/props?'), seen.url)
+    }
+
     // ---- the upstream never sees our session ----
     const withCookie = upstream.seen.filter(function (r) { return r.headers.cookie !== undefined })
     check('the session cookie is never forwarded upstream', withCookie.length === 0,

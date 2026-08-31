@@ -473,7 +473,10 @@
     for (const w of preset.warnings || []) warnings.push(w)
 
     const presetPath = util.joinPath(config.get('paths').configsDirectory, 'router-presets.ini')
-    if (o.previewOnly !== true) {
+    // A refresh re-plans against a router that is already running, so it asks
+    // for the preset to be written while still skipping the port check that a
+    // real start does — the port is busy, by us.
+    if (o.previewOnly !== true || o.forceWritePreset === true) {
       try {
         const target = await deps.fs.resolve(presetPath)
         await deps.fs.writeText(target, preset.ini)
@@ -829,6 +832,44 @@
       try { this._progressHandle.terminate() } catch (_e) { /* noop */ }
     }
     this._progressHandle = undefined
+  }
+
+  /**
+   * Re-plan the library into the router's preset file and have the running
+   * router pick it up.
+   *
+   * The preset is written when the router starts and never again, so a model's
+   * launch flags changed afterwards did not reach it: the model kept loading
+   * with whatever was saved when the router came up, which looks exactly like
+   * "it loaded with default settings". llama.cpp can re-read the source on
+   * demand — GET /models?reload=1 — and unloads any running model whose entry
+   * changed, so the next load uses the new flags.
+   *
+   * Only meaningful in router mode; single-model launches build their argv
+   * fresh every time and were never affected.
+   */
+  ServerManager.prototype.refreshRouterPreset = async function () {
+    if (this.state !== 'RUNNING' || !this.process || this.process.router !== true) {
+      return { ok: true, refreshed: false, reason: 'the router is not running' }
+    }
+    const plan = await this._planRouter({ previewOnly: true, forceWritePreset: true })
+    if (!plan.ok) return plan
+
+    const base = this._routerBase()
+    if (base === undefined) return { ok: true, refreshed: false, reason: 'no router address' }
+
+    const r = await this.deps.exec.httpGetJson(base + '/models?reload=1', {
+      timeoutMs: 20000, secretHeaders: this._routerHeaders(),
+    })
+    if (!r.ok || r.status !== 200) {
+      return {
+        ok: false, code: 'PRESET_RELOAD_FAILED',
+        message: 'Wrote the preset but the router would not re-read it: ' + (r.message || ('HTTP ' + r.status)),
+        remediation: ['Restart the server to pick the new settings up.'],
+      }
+    }
+    this.deps.log('router presets refreshed; a model whose flags changed reloads on next use')
+    return { ok: true, refreshed: true }
   }
 
   ServerManager.prototype._routerCommand = async function (path, id) {

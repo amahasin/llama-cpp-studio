@@ -199,6 +199,7 @@ standalone/
     ├── idle.test.js         an unused model gives its memory back; a busy one does not
     ├── mtp.test.js          MTP head detection, tagging and the draft-model argv
     ├── progress.test.js     the load fraction the router streams, across stages
+    ├── preset.test.js       changed launch flags reach a running router
     ├── smoke.js             boots the real app and drives it over RPC
     ├── paths.test.js        the folder stays self-contained when it moves
     ├── vision.test.js       the per-model vision toggle, end to end
@@ -416,6 +417,35 @@ is attached to it, and a model that arrives after its head picks it up.
 head — the flag is read out of the GGUF, and their stored metadata predates it.
 Newly imported and downloaded models are detected automatically.
 
+## When settings take effect
+
+Router mode serves every model from a preset file that the app generates from
+your library. llama.cpp reads that file **once, when the router starts** — so
+changing a model's launch flags used to do nothing until the server was
+restarted, and the model kept loading with whatever was saved when the router
+came up. That is what "it loaded with default settings" looks like from the
+outside: usually it *was* the defaults, from before anything was configured.
+
+Saving a model's settings now rewrites the preset and asks the running router
+to re-read it (`GET /models?reload=1`). A model whose flags changed is unloaded,
+so the next request loads it with the new ones. The same happens when a model
+is imported or removed. If the router refuses, the save still succeeds and the
+result carries a warning saying to restart the server.
+
+Single-model mode was never affected — it builds its command line fresh on
+every launch.
+
+### Reading about a model does not load it
+
+Also in router mode, llama.cpp loads a model in order to answer a question
+about it: `GET /props?model=X` loads X. With **Models loaded at once** set to 1,
+that meant opening the Chat tab could evict the model you had just loaded and
+pull in a different one — the model appearing to "load again" on its own.
+
+Requests through this app's proxy now carry `autoload=false` on GETs that name
+a model, so inspecting one never loads it. An actual request — a chat
+completion, which is a POST — still loads on demand, unchanged.
+
 ## Idle unload
 
 A loaded model holds its weights in VRAM for as long as `llama-server` has it,
@@ -598,7 +628,7 @@ node tests\vision.test.js          # the per-model vision toggle, end to end
 node tests\router.test.js          # router mode: presets, ids, load/unload
 node tests\units.test.js           # the pure modules, no app boot
 node tests\secrets.test.js         # secret redaction and its round trip
-npm test                           # all twelve, with a summary table
+npm test                           # all thirteen, with a summary table
 ```
 
 `units.test.js` is the fast one and needs nothing installed: it feeds generated

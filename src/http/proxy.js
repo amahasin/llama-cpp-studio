@@ -102,12 +102,32 @@ function createProxy(deps) {
     return t !== undefined && t.running === true
   }
 
-  /** The path as llama-server should see it. */
+  /**
+   * The path as llama-server should see it.
+   *
+   * One change on the way through: a GET that names a model gets
+   * `autoload=false` unless the caller already decided. In router mode llama.cpp
+   * loads a model just to answer a question about it — `GET /props?model=X`
+   * loads X — so simply opening the Chat tab could evict whatever was loaded
+   * and pull in something else, which is the "it loaded the model again"
+   * everyone runs into. Reading about a model should not load it; sending it a
+   * request (a POST) still does.
+   */
   function upstreamPath(url) {
     let pathname = url.pathname
     if (pathname === PREFIX) pathname = '/'
     else if (pathname.startsWith(PREFIX + '/')) pathname = pathname.slice(PREFIX.length)
     return pathname + (url.search || '')
+  }
+
+  /** GETs about a model must not load it; anything else is passed untouched. */
+  function withoutIncidentalLoads(method, url) {
+    if (method !== 'GET' && method !== 'HEAD') return url.search || ''
+    if (!url.searchParams.has('model')) return url.search || ''
+    if (url.searchParams.has('autoload')) return url.search || ''
+    const params = new URLSearchParams(url.search)
+    params.set('autoload', 'false')
+    return '?' + params.toString()
   }
 
   function handle(req, res, url) {
@@ -147,7 +167,7 @@ function createProxy(deps) {
       host: t.host,
       port: t.port,
       method: req.method,
-      path: upstreamPath(url),
+      path: upstreamPath(url).split('?')[0] + withoutIncidentalLoads(req.method, url),
       headers,
     }, function (upRes) {
       const out = filterHeaders(upRes.headers)

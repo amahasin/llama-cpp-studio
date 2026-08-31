@@ -59,6 +59,8 @@ repository was unavailable.
 | `modules/profiles.js` | `mtpPath` and `mtp` profile fields | the per-model switch has to persist |
 | `modules/api.js` | `models.detectMtp` command | mirrors `models.detectMmproj` |
 | `modules/api.js` | `settings.reveal` command, returning one named secret in the clear | the UI cannot show or copy a key it only ever receives redacted; deliberately narrow, and not wired to any agent tool |
+| `modules/api.js` | `_afterLibraryChange()` wraps saveSettings / resetSettings / addFlag / import / delete | a running router never re-read its preset, so changed launch flags did nothing until a restart |
+| `modules/server.js` | `refreshRouterPreset()`, and `_planRouter` accepts `forceWritePreset` so it can write without claiming the port | rewrites the preset and calls `GET /models?reload=1` |
 
 Nothing in `runtime/host/**` was changed for the mobile layout, the app icon or
 the chat fixes — those live in `web/`, `src/http/` and the bundle patches below.
