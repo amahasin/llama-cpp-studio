@@ -58,6 +58,7 @@ repository was unavailable.
 | `modules/commandBuilder.js` | `spec-draft-model` option def, emitted from `profile.draftModel` | the flag llama.cpp takes an MTP head through |
 | `modules/profiles.js` | `mtpPath` and `mtp` profile fields | the per-model switch has to persist |
 | `modules/api.js` | `models.detectMtp` command | mirrors `models.detectMmproj` |
+| `modules/api.js` | `settings.reveal` command, returning one named secret in the clear | the UI cannot show or copy a key it only ever receives redacted; deliberately narrow, and not wired to any agent tool |
 
 Nothing in `runtime/host/**` was changed for the mobile layout, the app icon or
 the chat fixes — those live in `web/`, `src/http/` and the bundle patches below.
@@ -82,6 +83,10 @@ npm run patch-ui
 | `mtp-pill` / `mtp-pill-render` | model cards carry an `mtp` tag | the library gave no sign which models ship a head |
 | `mtp-form` / `mtp-save` / `mtp-switch` | Model settings gains a Speculative decoding switch | otherwise MTP cannot be turned off for a model |
 | `loading-elapsed` | a loading model shows a percentage, falling back to elapsed time | a bare "loading" pill on a 20GB model is minutes with no sign of life |
+| `copy-fallback` | `copyText` falls back to a hidden textarea | `navigator.clipboard` does not exist on a non-secure origin, so every Copy button was dead when the app was reached over plain http on a LAN address |
+| `eye-icons` | `eye` / `eye-off` added to the icon set | a secret field needs a show/hide control |
+| `access-single-column` / `tls-single-column` | Access & Remote Access is one field per row | four fields across a row left each about 190px, too narrow for URLs and origin lists |
+| `api-key-controls` / `api-key-state` | the API key field gains show/hide and copy, fetching the real key through `settings.reveal` | the field only ever held the redacted placeholder |
 
 The first two depend on the reverse proxy in `src/http/proxy.js`, and the last
 four are the front end for `src/idle.js` — both this app's own code, unaffected

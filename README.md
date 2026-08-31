@@ -558,12 +558,18 @@ wherever an emoji font was missing.
   script.
 - The API is *not* authenticated beyond the token; treat it as a local desktop
   app, not a service to expose.
+- **Copying works over plain http too.** `navigator.clipboard` does not exist
+  on a non-secure origin, so every Copy button in the app was dead when it was
+  reached over a LAN address; there is a fallback now.
 - **Secrets never leave the host in the clear.** The llama-server API key and
   the optional GitHub token are stored in `config.json` as you typed them, but
   every path *out* — `status`, `settings.get`, the update response, and the
   agent-facing `llama_status` / `llama_settings` tools — replaces them with a
   placeholder plus a `…Set` boolean. Saving the settings form without touching
-  a key field keeps the stored value; clearing the field clears it.
+  a key field keeps the stored value; clearing the field clears it. The API key
+  field has show/hide and copy buttons, which fetch the real value through a
+  deliberate `settings.reveal` call — that command is limited to the named
+  secrets and is not exposed to the agent-facing tools.
 - The API key is handed to `llama-server` with `--api-key-file` when the
   installed build supports it, and to `curl` through a config file rather than
   `-H`. On Windows any local process can read another's command line, so a key

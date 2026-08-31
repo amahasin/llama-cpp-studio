@@ -43,6 +43,14 @@ function main() {
     /present: mtp-switch/.test(output))
   check('a loading model shows its progress',
     /present: loading-elapsed/.test(output))
+  check('the access settings are one field per row',
+    /present: access-single-column/.test(output) && /present: tls-single-column/.test(output))
+  check('the API key can be shown and copied',
+    /present: api-key-controls/.test(output) && /present: api-key-state/.test(output))
+  check('copying works on a non-secure origin too',
+    /present: copy-fallback/.test(output))
+  check('network and server flags are in a single card',
+    /present: server-flags-single-card/.test(output))
 
   return finish('bundle.test.js')
 }

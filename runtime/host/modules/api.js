@@ -190,6 +190,31 @@
     return result
   }
 
+  /**
+   * Hand back one secret in the clear, on request.
+   *
+   * _safeSettings redacts these so they do not ride on every status poll, which
+   * is what protects them; showing or copying one in the UI is a deliberate act
+   * and needs the real value. Only the settings named in SECRET_SETTINGS can be
+   * asked for — this is not a general "read any config value" hole — and it is
+   * behind the same session gate as every other command. It is deliberately not
+   * wired to any agent-facing tool.
+   */
+  Manager.prototype._revealSecret = function (section, key) {
+    const wanted = SECRET_SETTINGS.find(function (pair) {
+      return pair[0] === String(section) && pair[1] === String(key)
+    })
+    if (wanted === undefined) {
+      return {
+        ok: false, code: 'NOT_A_SECRET',
+        message: 'There is no secret setting called ' + String(section) + '.' + String(key) + '.',
+      }
+    }
+    const bag = this.config.get(wanted[0]) || {}
+    const value = bag[wanted[1]]
+    return { ok: true, section: wanted[0], key: wanted[1], value: typeof value === 'string' ? value : '' }
+  }
+
   // ---------- command router ----------
 
   Manager.prototype.cmd = async function (method, args) {
@@ -308,6 +333,7 @@
 
         case 'settings.get': return { ok: true, settings: this._safeSettings() }
         case 'settings.update': return this._updateSettings(a.patch)
+        case 'settings.reveal': return this._revealSecret(a.section, a.key)
 
         case 'shell.pick': return this.exec.pickPath({
           mode: a.mode, title: a.title, startDir: a.startDir, filter: a.filter, fileName: a.fileName,
