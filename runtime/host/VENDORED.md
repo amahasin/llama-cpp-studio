@@ -80,6 +80,7 @@ npm run patch-ui
 |---|---|---|
 | `chat-iframe-same-origin` | the chat `<iframe>` loads `/llama/` instead of llama-server's own address, and carries `allow="clipboard-write; clipboard-read"` | `127.0.0.1:8080` in a phone's browser is the *phone*, so the chat was blank on every remote device; and a cross-origin frame gets no clipboard, so llama.cpp's copy buttons silently did nothing |
 | `chat-open-in-new-tab` | "Open in new tab" opens `/llama/` too | same unreachable address |
+| `chat-frame-follows-loaded-model` / `chat-reload-repins-model` | the frame opens at `/llama/?model=<the loaded model>`, pinned at mount and re-pinned by the reload button | llama.cpp's chat picks its own model — the one that answered last in the conversation, else the first in the list — and its selector shortens the name, so with one model resident at a time the model you loaded was quietly evicted by one that looked identical |
 | `app-mark` | the sidebar glyph is the llama mark, not a generic layers icon | it had nothing to do with llama.cpp |
 | `idle-unload-stamp` / `-form` / `-save` / `-field` | Server Config gains an "Unload an idle model after" control | without it the timeout is only reachable by editing config.json |
 | `download-rate-units` / `install-rate-units` | download speed is formatted with `fmtBytes(...) + '/s'` | it used `fmtRate`, the tokens/second formatter, so a 6 MB/s download read "6465214.8 tok/s" |

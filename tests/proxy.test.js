@@ -158,42 +158,31 @@ async function main() {
     const wrongCookie = await fetch(base + '/llama/', { headers: { cookie: 'llama_session=nope' } })
     check('a wrong cookie is refused', wrongCookie.status === 403, String(wrongCookie.status))
 
-    // ---- reading about a model must not load it ----
+    // ---- the query reaches llama-server as it was sent ----
     //
-    // In router mode llama.cpp loads a model just to answer a question about
-    // it: GET /props?model=X loads X. With one model allowed at a time, simply
-    // opening the Chat tab could evict whatever was loaded — the "it loaded the
-    // model again" nobody asked for. A GET is told not to; a POST still loads.
+    // This proxy used to add `autoload=false` to every GET that named a model,
+    // to stop the chat frame pulling in a model nobody asked for. It stopped
+    // more than that: `GET /props?model=X` answers 400 "model is not loaded"
+    // when X is not resident, so the chat could not read the capabilities of
+    // any model it had not already loaded, and the composer lost the controls
+    // that depend on them. The frame is pointed at the loaded model instead
+    // (see the chat view), and requests are forwarded as sent.
     {
       await fetch(base + '/props?model=gemma', { headers: auth })
       const seen = upstream.seen[upstream.seen.length - 1]
-      check('a GET naming a model is marked no-autoload',
-        /autoload=false/.test(seen.url), seen.url)
-      check('and keeps the model it asked about', /model=gemma/.test(seen.url), seen.url)
+      check('a GET naming a model is forwarded untouched',
+        seen.url === '/props?model=gemma', seen.url)
     }
     {
       await fetch(base + '/props', { headers: auth })
       const seen = upstream.seen[upstream.seen.length - 1]
-      check('a GET naming no model is left alone', !/autoload/.test(seen.url), seen.url)
-    }
-    {
-      await fetch(base + '/props?model=gemma&autoload=true', { headers: auth })
-      const seen = upstream.seen[upstream.seen.length - 1]
-      check('an explicit autoload choice is respected', /autoload=true/.test(seen.url), seen.url)
-    }
-    {
-      await fetch(base + '/echo?model=gemma', {
-        method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, auth), body: '{}',
-      })
-      const seen = upstream.seen[upstream.seen.length - 1]
-      check('a POST is never touched — that is a real request, and it should load',
-        !/autoload/.test(seen.url), seen.url)
+      check('and one naming none is too', seen.url === '/props', seen.url)
     }
     {
       await fetch(base + '/llama/props?model=gemma', { headers: auth })
       const seen = upstream.seen[upstream.seen.length - 1]
-      check('the prefix is still stripped when the query is rewritten',
-        seen.url.startsWith('/props?'), seen.url)
+      check('the prefix is still stripped, query and all',
+        seen.url === '/props?model=gemma', seen.url)
     }
 
     // ---- a model switch the user did not ask for is worth saying out loud ----
@@ -226,6 +215,18 @@ async function main() {
           method: 'POST', headers: authB, body: '{"model":"model-A"}',
         })
         check('loading what is already loaded says nothing', noisy.length === 0, JSON.stringify(noisy))
+
+        // A GET that names an absent model loads it just as surely, and the
+        // chat asks about its model on a timer — so it is noted, once.
+        noisy.length = 0
+        await fetch(studioB.url + 'props?model=model-C', { headers: authB })
+        check('a GET that will swap the model is noted too',
+          noisy.length === 1 && /model-C/.test(noisy[0]), JSON.stringify(noisy))
+        await fetch(studioB.url + 'props?model=model-C', { headers: authB })
+        await fetch(studioB.url + 'props?model=model-C', { headers: authB })
+        check('  and not once per poll', noisy.length === 1, JSON.stringify(noisy))
+        await fetch(studioB.url + 'props?model=model-A', { headers: authB })
+        check('asking about the loaded model says nothing', noisy.length === 1, JSON.stringify(noisy))
       } finally {
         await studioB.close()
       }

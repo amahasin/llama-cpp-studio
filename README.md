@@ -435,34 +435,49 @@ result carries a warning saying to restart the server.
 Single-model mode was never affected — it builds its command line fresh on
 every launch.
 
-### The chat has its own idea of which model to use
+### The chat opens on the model you loaded
 
-The embedded chat is llama.cpp's own web UI, and it keeps a model choice **per
-conversation**, in its own storage — independent of anything you loaded from the
-Dashboard. Opening a conversation makes it load whatever it remembers.
+The embedded chat is llama.cpp's own web UI, and it picks its own model. In
+order: the model that answered last in the conversation you opened, else the
+first model that is loaded, else a favourite, else **the first model in the
+list**. None of those is necessarily the model you just loaded from the
+Dashboard.
 
 Its selector button also shortens the name. `Qwen3.6-35B-A3B-Q4_K_M` and
 `Qwen3.6-35B-A3B-UD-Q4_K_M` both display as **"Qwen3.6 35B-A3B"** there, so two
 quantizations of one model are indistinguishable until you open the dropdown.
-Between the two, it is easy to load one model from the Dashboard, see what looks
-like the right name in the chat, and have a different one load when you send.
+Between the two it is easy to load one model, see what looks like the right
+name in the chat, and have the other one answer — and with **Models loaded at
+once** set to 1, the one you loaded is evicted to make room for it.
 
-Switching models from the chat is a real feature, so the app does not overrule
-it — but it no longer happens without a word: a load that asks for something
-other than what is already loaded is written to the Logs page, naming both.
-If you want both models resident instead of one evicting the other, raise
-**Models loaded at once** in Server Config.
+That UI takes a `?model=` parameter on its own URL, which is the supported way
+to tell it. The Chat tab uses it: the frame opens on whatever the Dashboard has
+loaded. The choice is *pinned* when the tab opens rather than tracked, so
+changing models from inside the chat does not reload the frame and throw away
+the conversation; the **reload** button in the floating bar re-pins it to
+whatever is loaded at that moment.
 
-### Reading about a model does not load it
+Switching models from the chat is still a real feature and nothing here
+overrules it. It is no longer silent, though: a request that will swap the
+resident model is written to the Logs page, naming both, once per switch rather
+than once per poll. If you want both models resident instead of one evicting the
+other, raise **Models loaded at once** in Server Config.
 
-Also in router mode, llama.cpp loads a model in order to answer a question
-about it: `GET /props?model=X` loads X. With **Models loaded at once** set to 1,
-that meant opening the Chat tab could evict the model you had just loaded and
-pull in a different one — the model appearing to "load again" on its own.
+### Requests reach llama-server as they were sent
 
-Requests through this app's proxy now carry `autoload=false` on GETs that name
-a model, so inspecting one never loads it. An actual request — a chat
-completion, which is a POST — still loads on demand, unchanged.
+An earlier version of the proxy added `autoload=false` to every GET that named a
+model, to stop the chat frame pulling in a model nobody asked for. It stopped
+more than that. In router mode `GET /props?model=X` answers
+
+```
+400 {"error":{"message":"model is not loaded"}}
+```
+
+when X is not resident — so the chat could not read the capabilities of any
+model it had not already loaded, and everything in the composer that depends on
+them was degraded. Pointing the frame at the loaded model fixes the original
+complaint at its source, so the rewrite is gone: the query is forwarded exactly
+as sent, and llama.cpp loads on demand the way it is designed to.
 
 ### The log is not a transcript of the polling
 

@@ -102,17 +102,7 @@ function createProxy(deps) {
     return t !== undefined && t.running === true
   }
 
-  /**
-   * The path as llama-server should see it.
-   *
-   * One change on the way through: a GET that names a model gets
-   * `autoload=false` unless the caller already decided. In router mode llama.cpp
-   * loads a model just to answer a question about it — `GET /props?model=X`
-   * loads X — so simply opening the Chat tab could evict whatever was loaded
-   * and pull in something else, which is the "it loaded the model again"
-   * everyone runs into. Reading about a model should not load it; sending it a
-   * request (a POST) still does.
-   */
+  /** The path as llama-server should see it: this app's prefix removed. */
   function upstreamPath(url) {
     let pathname = url.pathname
     if (pathname === PREFIX) pathname = '/'
@@ -121,27 +111,24 @@ function createProxy(deps) {
   }
 
   /**
-   * The chat UI keeps its own model choice, per conversation, in the frame's
-   * IndexedDB — and when a conversation opens it issues its own
-   * `POST /models/load` for whatever it remembers. That choice is independent
-   * of anything loaded from the Dashboard, and its selector button truncates
-   * the name, so "Qwen3.6-35B-A3B-Q4_K_M" and "Qwen3.6-35B-A3B-UD-Q4_K_M" both
-   * read as "Qwen3.6 35B-A3B" — indistinguishable without opening the dropdown.
+   * Say so when a request is about to change which model is resident.
    *
-   * With "models loaded at once" set to 1 that silently evicts the model you
-   * loaded and pulls in a different one. Nothing here can overrule the choice —
-   * switching models from the chat is a real feature — but it should not happen
-   * without a word, so it is logged where the Logs page will show it.
+   * llama.cpp's web UI picks its own model: the one that answered last in the
+   * conversation you opened, else the first in the list. Neither is
+   * necessarily the one you loaded from the Dashboard, and its selector button
+   * shortens the name, so "Qwen3.6-35B-A3B-Q4_K_M" and
+   * "Qwen3.6-35B-A3B-UD-Q4_K_M" both read as "Qwen3.6 35B-A3B" there. With
+   * "Models loaded at once" set to 1 the difference is an eviction.
+   *
+   * The Chat tab now opens the frame on the loaded model (see the chat view in
+   * runtime/client.bundle.js), so this is the exception rather than the rule —
+   * but switching models from the chat is a real feature and nothing here
+   * overrules it. It just stops being silent.
    */
-  function noteModelSwitch(body) {
-    let wanted
-    try {
-      const parsed = JSON.parse(body)
-      wanted = parsed && typeof parsed.model === 'string' ? parsed.model : undefined
-    } catch (_e) {
-      return
-    }
-    if (wanted === undefined) return
+  let lastNoted
+
+  function noteModelSwitch(wanted) {
+    if (typeof wanted !== 'string' || wanted === '') return
 
     let loaded = []
     try {
@@ -152,22 +139,31 @@ function createProxy(deps) {
     } catch (_e) {
       return
     }
-    if (loaded.length === 0 || loaded.indexOf(wanted) !== -1) return
+    // Nothing resident yet is a first load, not a switch. Once the wanted
+    // model is in, the next switch away from it is worth saying again.
+    if (loaded.length === 0 || loaded.indexOf(wanted) !== -1) {
+      lastNoted = undefined
+      return
+    }
+    // The UI asks about its model on a timer; one line per switch, not per poll.
+    if (wanted === lastNoted) return
+    lastNoted = wanted
 
     log('the chat asked for "' + wanted + '" while "' + loaded.join('", "')
-      + '" was loaded — the chat keeps its own per-conversation model choice, and its'
-      + ' selector shortens the name, so two quantizations of one model look alike there.'
-      + ' Raise "Models loaded at once" if you want both resident.')
+      + '" was loaded, so that model is being swapped out. the chat keeps'
+      + ' its own model per conversation — the one that answered last — and its'
+      + ' selector shortens the name, so two quantizations of one model look alike'
+      + ' there. Raise "Models loaded at once" if you want both resident.')
   }
 
-  /** GETs about a model must not load it; anything else is passed untouched. */
-  function withoutIncidentalLoads(method, url) {
-    if (method !== 'GET' && method !== 'HEAD') return url.search || ''
-    if (!url.searchParams.has('model')) return url.search || ''
-    if (url.searchParams.has('autoload')) return url.search || ''
-    const params = new URLSearchParams(url.search)
-    params.set('autoload', 'false')
-    return '?' + params.toString()
+  /** The model a request names, whether in the query or in a JSON body. */
+  function modelInBody(body) {
+    try {
+      const parsed = JSON.parse(body)
+      return parsed && typeof parsed.model === 'string' ? parsed.model : undefined
+    } catch (_e) {
+      return undefined
+    }
   }
 
   function handle(req, res, url) {
@@ -207,7 +203,7 @@ function createProxy(deps) {
       host: t.host,
       port: t.port,
       method: req.method,
-      path: upstreamPath(url).split('?')[0] + withoutIncidentalLoads(req.method, url),
+      path: upstreamPath(url),
       headers,
     }, function (upRes) {
       const out = filterHeaders(upRes.headers)
@@ -236,8 +232,13 @@ function createProxy(deps) {
     // A client that goes away must not leave a request hanging upstream.
     res.on('close', function () { upstream.destroy() })
 
-    // One path is read on the way through rather than piped: a model switch the
-    // user did not ask for is worth a log line, and the body is a few bytes.
+    // A request that names a model in the query loads it if it is not resident:
+    // in router mode `GET /props?model=X` loads X. That is llama.cpp's design
+    // and the frame relies on it, so it is forwarded as sent — and noted.
+    if (url.searchParams.has('model')) noteModelSwitch(url.searchParams.get('model'))
+
+    // One path is read on the way through rather than piped: an explicit load
+    // names its model in the body, and the body is a few bytes.
     if (req.method === 'POST' && /\/models\/load$/.test(url.pathname)) {
       let body = ''
       req.on('data', function (c) {
@@ -245,7 +246,7 @@ function createProxy(deps) {
         upstream.write(c)
       })
       req.on('end', function () {
-        noteModelSwitch(body)
+        noteModelSwitch(modelInBody(body))
         upstream.end()
       })
       return
