@@ -44,6 +44,15 @@ function startUpstream() {
         }, 60)
         return
       }
+      if (req.method === 'POST' && req.url === '/models/load') {
+        let body = ''
+        req.on('data', function (c) { body += c })
+        req.on('end', function () {
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ got: body }))
+        })
+        return
+      }
       if (req.method === 'POST' && req.url === '/echo') {
         let body = ''
         req.on('data', function (c) { body += c })
@@ -78,6 +87,7 @@ function stubManager(options) {
           ? { state: 'STOPPED' }
           : { state: 'RUNNING', host: '127.0.0.1', port: o.port }
       },
+      routerLoaded() { return o.loaded || [] },
     },
     async cmd() { return { ok: true } },
   }
@@ -184,6 +194,60 @@ async function main() {
       const seen = upstream.seen[upstream.seen.length - 1]
       check('the prefix is still stripped when the query is rewritten',
         seen.url.startsWith('/props?'), seen.url)
+    }
+
+    // ---- a model switch the user did not ask for is worth saying out loud ----
+    //
+    // The chat UI keeps its own per-conversation model choice and loads it when
+    // a conversation opens. Its selector truncates the name, so two quants of
+    // one model look identical there — and with one model allowed at a time,
+    // that silently evicts whatever was loaded. The switch is honoured, and
+    // noted.
+    {
+      const noisy = []
+      const studioB = await startServer({
+        manager: stubManager({ port: upstream.port, loaded: ['model-A'] }),
+        host: '127.0.0.1', port: 0, version: 'test',
+        log(m) { noisy.push(m) },
+      })
+      try {
+        const authB = { 'x-llama-token': studioB.token, 'Content-Type': 'application/json' }
+        const res = await fetch(studioB.url + 'models/load', {
+          method: 'POST', headers: authB, body: '{"model":"model-B"}',
+        })
+        check('the load is forwarded, body intact',
+          (await res.json()).got === '{"model":"model-B"}')
+        check('and a switch away from the loaded model is reported',
+          noisy.some(function (m) { return /model-B/.test(m) && /model-A/.test(m) }),
+          JSON.stringify(noisy))
+
+        noisy.length = 0
+        await fetch(studioB.url + 'models/load', {
+          method: 'POST', headers: authB, body: '{"model":"model-A"}',
+        })
+        check('loading what is already loaded says nothing', noisy.length === 0, JSON.stringify(noisy))
+      } finally {
+        await studioB.close()
+      }
+    }
+    {
+      // Nothing loaded yet: a first load is not a switch.
+      const quiet = []
+      const studioC = await startServer({
+        manager: stubManager({ port: upstream.port, loaded: [] }),
+        host: '127.0.0.1', port: 0, version: 'test',
+        log(m) { quiet.push(m) },
+      })
+      try {
+        await fetch(studioC.url + 'models/load', {
+          method: 'POST',
+          headers: { 'x-llama-token': studioC.token, 'Content-Type': 'application/json' },
+          body: '{"model":"model-B"}',
+        })
+        check('a first load is not reported as a switch', quiet.length === 0, JSON.stringify(quiet))
+      } finally {
+        await studioC.close()
+      }
     }
 
     // ---- the upstream never sees our session ----

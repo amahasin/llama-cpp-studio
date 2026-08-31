@@ -718,6 +718,9 @@
         }
         return row
       })
+    this._loadedIds = models
+      .filter(function (m) { return m.state === 'loaded' })
+      .map(function (m) { return m.id })
     return { ok: true, models }
   }
 
@@ -870,6 +873,14 @@
     }
     this.deps.log('router presets refreshed; a model whose flags changed reloads on next use')
     return { ok: true, refreshed: true }
+  }
+
+  /**
+   * The ids the router currently has loaded, from the progress table and the
+   * last poll. Cheap and synchronous, so the proxy can consult it per request.
+   */
+  ServerManager.prototype.routerLoaded = function () {
+    return Array.isArray(this._loadedIds) ? this._loadedIds.slice() : []
   }
 
   ServerManager.prototype._routerCommand = async function (path, id) {

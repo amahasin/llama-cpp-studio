@@ -435,6 +435,24 @@ result carries a warning saying to restart the server.
 Single-model mode was never affected — it builds its command line fresh on
 every launch.
 
+### The chat has its own idea of which model to use
+
+The embedded chat is llama.cpp's own web UI, and it keeps a model choice **per
+conversation**, in its own storage — independent of anything you loaded from the
+Dashboard. Opening a conversation makes it load whatever it remembers.
+
+Its selector button also shortens the name. `Qwen3.6-35B-A3B-Q4_K_M` and
+`Qwen3.6-35B-A3B-UD-Q4_K_M` both display as **"Qwen3.6 35B-A3B"** there, so two
+quantizations of one model are indistinguishable until you open the dropdown.
+Between the two, it is easy to load one model from the Dashboard, see what looks
+like the right name in the chat, and have a different one load when you send.
+
+Switching models from the chat is a real feature, so the app does not overrule
+it — but it no longer happens without a word: a load that asks for something
+other than what is already loaded is written to the Logs page, naming both.
+If you want both models resident instead of one evicting the other, raise
+**Models loaded at once** in Server Config.
+
 ### Reading about a model does not load it
 
 Also in router mode, llama.cpp loads a model in order to answer a question

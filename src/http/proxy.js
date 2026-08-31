@@ -120,6 +120,46 @@ function createProxy(deps) {
     return pathname + (url.search || '')
   }
 
+  /**
+   * The chat UI keeps its own model choice, per conversation, in the frame's
+   * IndexedDB — and when a conversation opens it issues its own
+   * `POST /models/load` for whatever it remembers. That choice is independent
+   * of anything loaded from the Dashboard, and its selector button truncates
+   * the name, so "Qwen3.6-35B-A3B-Q4_K_M" and "Qwen3.6-35B-A3B-UD-Q4_K_M" both
+   * read as "Qwen3.6 35B-A3B" — indistinguishable without opening the dropdown.
+   *
+   * With "models loaded at once" set to 1 that silently evicts the model you
+   * loaded and pulls in a different one. Nothing here can overrule the choice —
+   * switching models from the chat is a real feature — but it should not happen
+   * without a word, so it is logged where the Logs page will show it.
+   */
+  function noteModelSwitch(body) {
+    let wanted
+    try {
+      const parsed = JSON.parse(body)
+      wanted = parsed && typeof parsed.model === 'string' ? parsed.model : undefined
+    } catch (_e) {
+      return
+    }
+    if (wanted === undefined) return
+
+    let loaded = []
+    try {
+      const live = manager && manager.server && typeof manager.server.routerLoaded === 'function'
+        ? manager.server.routerLoaded()
+        : undefined
+      if (Array.isArray(live)) loaded = live
+    } catch (_e) {
+      return
+    }
+    if (loaded.length === 0 || loaded.indexOf(wanted) !== -1) return
+
+    log('the chat asked for "' + wanted + '" while "' + loaded.join('", "')
+      + '" was loaded — the chat keeps its own per-conversation model choice, and its'
+      + ' selector shortens the name, so two quantizations of one model look alike there.'
+      + ' Raise "Models loaded at once" if you want both resident.')
+  }
+
   /** GETs about a model must not load it; anything else is passed untouched. */
   function withoutIncidentalLoads(method, url) {
     if (method !== 'GET' && method !== 'HEAD') return url.search || ''
@@ -195,6 +235,21 @@ function createProxy(deps) {
 
     // A client that goes away must not leave a request hanging upstream.
     res.on('close', function () { upstream.destroy() })
+
+    // One path is read on the way through rather than piped: a model switch the
+    // user did not ask for is worth a log line, and the body is a few bytes.
+    if (req.method === 'POST' && /\/models\/load$/.test(url.pathname)) {
+      let body = ''
+      req.on('data', function (c) {
+        if (body.length < 4096) body += c
+        upstream.write(c)
+      })
+      req.on('end', function () {
+        noteModelSwitch(body)
+        upstream.end()
+      })
+      return
+    }
     req.pipe(upstream)
   }
 
