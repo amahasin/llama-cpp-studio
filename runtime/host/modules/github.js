@@ -14,13 +14,19 @@
   }
 
   Github.prototype._api = async function (path) {
-    const base = (this.deps.config.get('llamaCpp') || {}).githubApiBase || 'https://api.github.com'
+    const cfg = this.deps.config.get('llamaCpp') || {}
+    const base = cfg.githubApiBase || 'https://api.github.com'
+    // A personal access token lifts the limit from 60 requests an hour, shared
+    // by everything behind one IP, to 5000 for this user. Optional: without one
+    // the app works exactly as before, it just has fewer lookups to spend.
+    const token = typeof cfg.githubToken === 'string' && cfg.githubToken !== '' ? cfg.githubToken : undefined
     const r = await this.exec.httpGetJson(base + path, {
       headers: {
         Accept: 'application/vnd.github+json',
         'User-Agent': 'dsh-llama-cpp-manager',
         'X-GitHub-Api-Version': '2022-11-28',
       },
+      secretHeaders: token === undefined ? undefined : { Authorization: 'Bearer ' + token },
       timeoutMs: 30000,
     })
     if (!r.ok) {
@@ -28,11 +34,19 @@
         return {
           ok: false,
           code: 'GITHUB_RATE_LIMIT',
-          message: 'GitHub API rate limit reached. Wait ~1 hour or retry later. (Unauthenticated requests are limited to 60/hour.)',
-          remediation: [
-            'Wait for the rate-limit window to reset (the response headers tell you when).',
-            'Use "Import GGUF" with a model you already have — installing llama.cpp is the only step that needs GitHub.',
-          ],
+          message: token === undefined
+            ? 'GitHub API rate limit reached. Wait ~1 hour or retry later. (Unauthenticated requests are limited to 60/hour.)'
+            : 'GitHub API rate limit reached even with a token. Wait for the window to reset, or check that the token is still valid.',
+          remediation: token === undefined
+            ? [
+              'Wait for the rate-limit window to reset (the response headers tell you when).',
+              'Add a GitHub personal access token in Settings to raise the limit to 5000 requests an hour.',
+              'Use "Import GGUF" with a model you already have — installing llama.cpp is the only step that needs GitHub.',
+            ]
+            : [
+              'Wait for the rate-limit window to reset (the response headers tell you when).',
+              'Check that the token has not expired or been revoked.',
+            ],
         }
       }
       return { ok: false, code: r.code || 'GITHUB_API', message: r.message }

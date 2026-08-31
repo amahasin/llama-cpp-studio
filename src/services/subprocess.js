@@ -98,11 +98,29 @@ function createSubprocessService(options) {
       return handle
     },
 
-    // Used on shutdown so no llama-server survives the app.
-    terminateAll() {
-      for (const handle of Array.from(live)) {
+    /**
+     * Used on shutdown so no llama-server survives the app.
+     *
+     * Waits for the children to actually go. taskkill is asynchronous, so
+     * signalling and returning left the processes alive for a moment after
+     * shutdown claimed to be finished — long enough that the data directory
+     * they were spawned in could not be deleted, and long enough for a
+     * llama-server to still be holding VRAM when the next one started.
+     * Bounded, because a process that will not die must not hang the exit.
+     */
+    async terminateAll(timeoutMs) {
+      const handles = Array.from(live)
+      for (const handle of handles) {
         try { handle.terminate() } catch (_e) { /* noop */ }
       }
+      if (handles.length === 0) return
+      const allDone = Promise.all(handles.map(function (h) {
+        return Promise.resolve(h.done).catch(function () { /* already gone */ })
+      }))
+      await Promise.race([allDone, new Promise(function (resolve) {
+        const t = setTimeout(resolve, timeoutMs === undefined ? 5000 : timeoutMs)
+        if (typeof t.unref === 'function') t.unref()
+      })])
     },
   }
   return service

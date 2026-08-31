@@ -1,0 +1,60 @@
+# Vendored code — read this before editing anything in `runtime/`
+
+Everything in `runtime/host/` and `runtime/client.bundle.js` is **copied in from
+another repository**. It is not maintained here.
+
+| Path | Source | Copied by |
+|---|---|---|
+| `runtime/host/**` | the DeepSeek Harness `llama_cpp` plugin, `src/host/**` | `pack.js` → `selfContain()` |
+| `runtime/client.bundle.js` | the same plugin, `dist/client.bundle.js` | `pack.js`, built by `build.js` |
+| `web/vendor/react*.js` | React 18 UMD builds (MIT, © Meta Platforms) | `build.js` → `vendorReact()` |
+
+`pack.js` does `fs.rmSync(runtime/host)` and re-copies the whole directory. **Any
+change made here is destroyed the next time somebody packs the app where the
+plugin sources live.**
+
+## Provenance
+
+> **Unrecorded.** The plugin repository was not present on the machine where
+> this file was written (`pack.js` expects it one level up, at `../src/host/`),
+> so the upstream URL and revision of the current copy are unknown.
+>
+> Whoever next packs from the plugin sources should fill in the URL and commit
+> hash below, and keep them current. Without it there is no way to tell what
+> this copy is, whether it is behind, or what an update would change.
+
+```
+upstream:  <repository URL>
+revision:  <commit hash>
+copied:    <date>
+```
+
+## Local modifications
+
+The following changes were made **here**, not upstream, and will be lost on the
+next pack unless they are upstreamed first. They exist because the plugin
+repository was unavailable.
+
+| File | Change | Why |
+|---|---|---|
+| `modules/api.js` | `_safeSettings()` redacts `server.apiKey` and `llamaCpp.githubToken`, `_stripRedactedSecrets()` restores an unchanged one, `settings.update`'s echoed config is redacted | the raw config rode on every `status` poll to the browser and to the `llama_status` tool |
+| `modules/api.js` | `_latest()` caches failures and keys the cache by backend | a rate-limited GitHub was re-asked on every poll, spending an allowance that was already gone |
+| `modules/api.js` | `_status()` only reads `latestVersion` from a **successful** cache | a cached failure has no `.latest` to read |
+| `modules/api.js` | `_testChat` sends the API key through `pushSecretHeaders` | it was on curl's command line, readable by any local process |
+| `modules/exec.js` | new `pushSecretHeaders()` / `_secretHeaderArgs()`; `secretHeaders` option on `_curlGet` and `httpPostJson` | as above — a curl config file instead of `-H` on the argv |
+| `modules/server.js` | new `_apiKeyFile()`; router and single-model launches prefer `--api-key-file`; `apiKeyFile` stripped from router child profiles | `--api-key` put the key on a long-lived command line |
+| `modules/server.js` | router health/model calls pass `secretHeaders` | as above |
+| `modules/commandBuilder.js` | `api-key-file` option def, preferred over `api-key` when the build advertises it | as above |
+| `modules/security.js` | `validateHttpUrl` actually validates the host | the branch that was meant to had an **empty body**, so every host shape passed |
+| `modules/config.js` | new `llamaCpp.githubToken`, normalized like the other optional strings | 60 unauthenticated GitHub requests/hour is a recurring failure |
+| `modules/github.js` | sends `Authorization` when a token is set; remediation text distinguishes the two cases | as above |
+
+`tests/units.test.js` and `tests/secrets.test.js` cover most of the above, so a
+re-pack that silently reverts them should fail the suite rather than pass
+quietly. That is the safety net; it is not a substitute for upstreaming.
+
+## Updating this copy
+
+1. Record the upstream URL and revision above.
+2. Re-apply (or upstream) every row in the table.
+3. `npm test` — the two suites named above are the ones that will notice.

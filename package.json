@@ -12,7 +12,9 @@
     "build": "node build.js",
     "start": "node src/main.js",
     "status": "node src/main.js --status",
-    "test": "node tests/smoke.js && node tests/paths.test.js && node tests/vision.test.js && node tests/router.test.js"
+    "test": "node tests/run-all.js",
+    "test:units": "node tests/units.test.js",
+    "lint": "npx --yes eslint ."
   },
   "engines": {
     "node": ">=18"

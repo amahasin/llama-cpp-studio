@@ -11,11 +11,37 @@
 const { createManager } = require('./host.js')
 const { startServer } = require('./server.js')
 const options = require('./cli/options.js')
+const { requireSupportedPlatform } = require('./lib/platform.js')
 const endpoint = require('./cli/endpoint.js')
 const { statusBanner } = require('./cli/banner.js')
 const { openBrowser } = require('./cli/browser.js')
 
 const VERSION = require('../package.json').version
+
+/**
+ * Why the socket could not be opened, said in a sentence. A busy port is the
+ * ordinary way this fails — someone already has the app running — and a stack
+ * trace is a poor way to be told so.
+ */
+function bindFailure(err, args) {
+  const where = args.host + ':' + args.port
+  if (err && err.code === 'EADDRINUSE') {
+    return [
+      'Port ' + args.port + ' is already in use on ' + args.host + '.',
+      '',
+      'If llama.cpp Studio is already running, open it instead of starting a second copy.',
+      'Otherwise pick another port:  llama-studio --port ' + (Number(args.port) + 1),
+      'Or let the OS choose a free one:  llama-studio --port 0',
+    ].join('\n')
+  }
+  if (err && err.code === 'EACCES') {
+    return 'Not allowed to bind ' + where + '. Ports below 1024 need elevation — pick a higher one with --port.'
+  }
+  if (err && err.code === 'EADDRNOTAVAIL') {
+    return 'No interface on this machine has the address ' + args.host + '. Check --host.'
+  }
+  return 'Could not listen on ' + where + ': ' + String(err && err.message ? err.message : err)
+}
 
 /**
  * Router mode is the useful default: an OpenAI-compatible endpoint that is up
@@ -68,8 +94,11 @@ function installShutdown(deps) {
 async function main() {
   const args = options.parse(process.argv.slice(2))
 
+  // --help and --version are pure text and answer anywhere; everything below
+  // needs the Windows exec layer.
   if (args.help) { console.log(options.helpText(VERSION)); return }
   if (args.version) { console.log(VERSION); return }
+  if (!requireSupportedPlatform()) { process.exitCode = 1; return }
   if (args.unknown.length > 0) {
     console.error('unknown option: ' + args.unknown[0] + '\n')
     console.error(options.helpText(VERSION))
@@ -89,9 +118,17 @@ async function main() {
     return
   }
 
-  const http = await startServer({
-    manager, host: args.host, port: args.port, version: VERSION, log,
-  })
+  let http
+  try {
+    http = await startServer({
+      manager, host: args.host, port: args.port, version: VERSION, log,
+    })
+  } catch (err) {
+    await manager.shutdown()
+    console.error(bindFailure(err, args))
+    process.exitCode = 1
+    return
+  }
 
   const routerStartError = await autostartRouter(manager, args.autostart)
 

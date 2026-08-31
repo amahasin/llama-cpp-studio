@@ -667,10 +667,66 @@
 
   // ---------- network helpers (curl.exe, structured argv) ----------
 
+  /** Escape a value for the inside of a curl config file's quoted string. */
+  function curlConfEscape(value) {
+    return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  }
+
+  /**
+   * Turn secret headers into curl arguments that keep them off the command
+   * line. Any local user on Windows can read another process's argv through
+   * Win32_Process.CommandLine, so an `-H "Authorization: Bearer …"` is legible
+   * to everything on the machine for as long as curl runs. curl reads the very
+   * same headers out of a `--config` file instead.
+   *
+   * The file is written once per distinct secret and reused, because these
+   * headers ride on polling requests and a fresh temp file per poll would cost
+   * more than the exposure it removes. Returns undefined when the file could
+   * not be written, so the caller can fall back rather than lose authentication.
+   */
+  Exec.prototype._secretHeaderArgs = async function (secretHeaders) {
+    const keys = Object.keys(secretHeaders || {}).filter(function (k) {
+      const v = secretHeaders[k]
+      return typeof v === 'string' && v !== ''
+    })
+    if (keys.length === 0) return []
+
+    const body = keys
+      .map(function (k) { return 'header = "' + k + ': ' + curlConfEscape(secretHeaders[k]) + '"' })
+      .join('\n') + '\n'
+    const stamp = util.hashStr(body)
+    if (this._secretHeaders !== undefined && this._secretHeaders.stamp === stamp) {
+      return ['--config', this._secretHeaders.path]
+    }
+
+    const file = util.joinPath(this.scriptsDir, 'curl-headers.conf')
+    try {
+      await this.ensureDir(this.scriptsDir)
+      const target = await this.fs.resolve(file)
+      await this.fs.writeText(target, body)
+    } catch (_e) {
+      return undefined
+    }
+    this._secretHeaders = { stamp, path: file }
+    return ['--config', file]
+  }
+
+  /** Append secret headers, on the command line only if the file route failed. */
+  Exec.prototype.pushSecretHeaders = async function (args, secretHeaders) {
+    const viaFile = await this._secretHeaderArgs(secretHeaders)
+    if (viaFile !== undefined) {
+      for (const a of viaFile) args.push(a)
+      return
+    }
+    for (const k of Object.keys(secretHeaders || {})) {
+      if (secretHeaders[k]) args.push('-H', k + ': ' + secretHeaders[k])
+    }
+  }
+
   /**
    * GET a URL with curl and split the trailing "\n<http_code>" writeout off the
    * body. Shared by httpGetText/httpGetJson.
-   * opts: { headers: {K:V}, timeoutMs }
+   * opts: { headers: {K:V}, secretHeaders: {K:V}, timeoutMs }
    */
   Exec.prototype._curlGet = async function (url, opts) {
     const o = opts || {}
@@ -678,6 +734,7 @@
     const args = ['-sS', '--connect-timeout', '15', '--max-time', String(Math.floor(timeoutMs / 1000)), '-L']
     const headers = o.headers || {}
     for (const k of Object.keys(headers)) args.push('-H', k + ': ' + headers[k])
+    await this.pushSecretHeaders(args, o.secretHeaders)
     args.push('-w', '\n%{http_code}', url)
     const r = await this.run([TOOLS.curl].concat(args), {
       stdoutBytes: 8 * 1024 * 1024,
@@ -726,7 +783,7 @@
    * POST a JSON body and return parsed JSON + HTTP status. The body goes in on
    * stdin rather than as an argument: it is data, and a request that grows past
    * the command-line length limit should not start failing on that account.
-   * opts: { headers: {K:V}, timeoutMs }
+   * opts: { headers: {K:V}, secretHeaders: {K:V}, timeoutMs }
    */
   Exec.prototype.httpPostJson = async function (url, body, opts) {
     const o = opts || {}
@@ -735,6 +792,7 @@
       '-X', 'POST', '-H', 'Content-Type: application/json', '--data-binary', '@-']
     const headers = o.headers || {}
     for (const k of Object.keys(headers)) args.push('-H', k + ': ' + headers[k])
+    await this.pushSecretHeaders(args, o.secretHeaders)
     args.push('-w', '\n%{http_code}', url)
     const r = await this.run([TOOLS.curl].concat(args), {
       stdinData: JSON.stringify(body === undefined ? {} : body),

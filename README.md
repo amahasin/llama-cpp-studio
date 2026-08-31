@@ -140,7 +140,8 @@ standalone/
 │   ├── lib/
 │   │   ├── layout.js        every path, and packed-vs-in-place detection
 │   │   ├── fsx.js           norm/isInside/readJson/copyDir and friends
-│   │   └── args.js          table-driven option parsing for both CLIs
+│   │   ├── args.js          table-driven option parsing for both CLIs
+│   │   └── platform.js      this app is Windows-only, said up front
 │   ├── cli/
 │   │   ├── options.js       the llama-studio option table and --help
 │   │   ├── banner.js        the startup block, formatted from `status`
@@ -149,6 +150,7 @@ standalone/
 │   ├── http/
 │   │   ├── routes.js        /, /assets/*, /api/rpc, /api/health
 │   │   ├── origin.js        the remote-access allow-list (CORS)
+│   │   ├── csp.js           the Content-Security-Policy for the app shell
 │   │   └── respond.js       sendJson/sendText/sendFile/readBody
 │   ├── repair/
 │   │   ├── config.js        the seven managed directories
@@ -179,6 +181,10 @@ standalone/
 ├── repair-paths.js          re-points an older data directory at its new home
 ├── start.cmd                tray launcher; `start.cmd --console` for a console
 └── tests/
+    ├── run-all.js           every suite, with a pass/fail table at the end
+    ├── helpers.js           scratch directories that actually get cleaned up
+    ├── units.test.js        the pure modules: gguf, validators, scoring, argv
+    ├── secrets.test.js      secret redaction, and the save round-trip
     ├── smoke.js             boots the real app and drives it over RPC
     ├── paths.test.js        the folder stays self-contained when it moves
     ├── vision.test.js       the per-model vision toggle, end to end
@@ -352,14 +358,42 @@ on a port that is already in use, so the failure is loud rather than silent.
 
 ## Security
 
-- The HTTP server binds `127.0.0.1` only.
-- Every RPC call needs a random per-run token that is embedded in the page it
-  serves, and the `Origin` header must be local — a random website in another
-  tab cannot drive the app.
-- The API is *not* authenticated beyond that; treat it as a local desktop app,
-  not a service to expose. Binding `--host 0.0.0.0` is not supported.
+- The HTTP server binds `127.0.0.1` by default. Binding anything else logs a
+  warning at startup, because it puts the UI on the network.
+- Every RPC call needs a random per-run token, carried on the page's `<body>`
+  element, and the `Origin` header must be local — a random website in another
+  tab cannot drive the app. Setting *Allowed Remote Access Sites* to `*` turns
+  the origin check off entirely and logs a warning the first time it is used;
+  name the origins you actually need instead.
+- The page is served with a Content-Security-Policy. It has to allow
+  `unsafe-eval` (the UI bundle is evaluated with `new Function`, which is the
+  architecture) but not `unsafe-inline`, so an injected string cannot become a
+  script.
+- The API is *not* authenticated beyond the token; treat it as a local desktop
+  app, not a service to expose.
+- **Secrets never leave the host in the clear.** The llama-server API key and
+  the optional GitHub token are stored in `config.json` as you typed them, but
+  every path *out* — `status`, `settings.get`, the update response, and the
+  agent-facing `llama_status` / `llama_settings` tools — replaces them with a
+  placeholder plus a `…Set` boolean. Saving the settings form without touching
+  a key field keeps the stored value; clearing the field clears it.
+- The API key is handed to `llama-server` with `--api-key-file` when the
+  installed build supports it, and to `curl` through a config file rather than
+  `-H`. On Windows any local process can read another's command line, so a key
+  on an argv is a key on display for as long as that process runs. Builds too
+  old for `--api-key-file` fall back to `--api-key` rather than starting with
+  no authentication.
 - `llama-server` itself still binds whatever you set in Server Config
   (localhost by default).
+
+### GitHub rate limits
+
+Checking for new llama.cpp builds uses the GitHub API, which allows 60
+unauthenticated requests an hour **shared by everything behind your IP**. Set a
+personal access token (no scopes needed for public releases) in
+`llamaCpp.githubToken` to raise that to 5000. Without one nothing breaks; the
+app just has fewer lookups to spend, and a refusal is now remembered for a
+while instead of being re-asked on every poll.
 
 ## Testing
 
@@ -369,8 +403,19 @@ node tests\smoke.js --data D:\llama-studio
 node tests\paths.test.js           # the folder stays self-contained when it moves
 node tests\vision.test.js          # the per-model vision toggle, end to end
 node tests\router.test.js          # router mode: presets, ids, load/unload
-npm test                           # all four
+node tests\units.test.js           # the pure modules, no app boot
+node tests\secrets.test.js         # secret redaction and its round trip
+npm test                           # all six, with a summary table
 ```
+
+`units.test.js` is the fast one and needs nothing installed: it feeds generated
+GGUF headers to the parser (including truncated, mis-typed and lying ones), runs
+every input validator against the shapes it is meant to refuse, checks that asset
+scoring picks the right build per backend, and checks that the llama-server argv
+only ever carries flags the installed binary advertises. `secrets.test.js` checks
+that the API key and the GitHub token are redacted on every path out of the host
+and — the half that matters more — that saving the settings form without touching
+the key field keeps the stored key instead of overwriting it with the placeholder.
 
 `smoke.js` checks the server, the token gate, the served bundle, and drives real
 commands (`status`, `settings.get/update`, `diagnostics`, `hardware`) against
@@ -397,7 +442,12 @@ node tests\run-all.js
 
 ## Platform
 
-Windows-first, like the plugin: hardware detection, file operations and the
-GGUF scanner run through PowerShell helpers, and the release selector picks
-Windows assets. The service layer is portable; adding another platform means
-providing equivalents for those helpers in `src/host/modules/exec.js`.
+Windows **only**, like the plugin: hardware detection, file operations and the
+GGUF scanner run through PowerShell helpers, process trees are torn down with
+`taskkill.exe`, and every build it installs is a `.exe`. Started anywhere else
+the app says so and stops, rather than failing several steps later inside a
+shell that does not exist.
+
+The service layer itself is portable; a real port means providing equivalents
+for those helpers in `runtime/host/modules/exec.js` — which is vendored code,
+so see `runtime/host/VENDORED.md` first.

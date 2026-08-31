@@ -217,6 +217,7 @@
       sslKeyFile: srvCfg.sslKeyFile,
       sslCertFile: srvCfg.sslCertFile,
     })
+    profile.apiKeyFile = await this._apiKeyFile(srvCfg.apiKey, versionEntry.capabilities || {})
 
     await this._resolveVision(profile, model)
 
@@ -396,7 +397,7 @@
       }
       // Server-scoped flags belong to the router process, not to the children
       // it spawns; leaving them in a preset would bind a second listener.
-      for (const key of ['apiKey', 'webPath', 'sslKeyFile', 'sslCertFile', 'noWebui', 'slots']) {
+      for (const key of ['apiKey', 'apiKeyFile', 'webPath', 'sslKeyFile', 'sslCertFile', 'noWebui', 'slots']) {
         delete profile[key]
       }
       entries.push({
@@ -436,7 +437,11 @@
       argv.push('--no-models-autoload')
     }
     // Server-scoped flags apply to the router itself: it is the HTTP server.
-    if (serverCfg.apiKey && capsHave(caps, ['api-key'])) argv.push('--api-key', serverCfg.apiKey)
+    // Prefer the file: the router process is long-lived, and its command line
+    // is readable by anything on the machine for as long as it runs.
+    const keyFile = await this._apiKeyFile(serverCfg.apiKey, caps)
+    if (keyFile !== undefined) argv.push('--api-key-file', keyFile)
+    else if (serverCfg.apiKey && capsHave(caps, ['api-key'])) argv.push('--api-key', serverCfg.apiKey)
     if (serverCfg.webui === false && capsHave(caps, ['no-webui'])) argv.push('--no-webui')
     if (serverCfg.metrics !== false && capsHave(caps, ['metrics'])) argv.push('--metrics')
     if (serverCfg.webPath && capsHave(caps, ['path'])) argv.push('--path', serverCfg.webPath)
@@ -570,6 +575,30 @@
   }
 
   /**
+   * The API key written where llama-server can read it, or undefined when that
+   * is not possible. `--api-key KEY` puts the key on a command line that any
+   * local process can read for the whole life of the server; `--api-key-file`
+   * does not. Builds that predate the flag keep the old behaviour rather than
+   * silently starting with no authentication at all.
+   */
+  ServerManager.prototype._apiKeyFile = async function (key, caps) {
+    const capsHave = LLAMA.commandBuilder.capsHave
+    if (!key || !capsHave(caps, ['api-key-file'])) return undefined
+    const dir = (this.deps.config.get('paths') || {}).configsDirectory
+    if (!dir) return undefined
+    const file = util.joinPath(dir, 'api-key.txt')
+    try {
+      await this.deps.exec.ensureDir(dir)
+      const target = await this.deps.fs.resolve(file)
+      // llama-server reads one key per line; comments start with '#'.
+      await this.deps.fs.writeText(target, key + '\n')
+    } catch (_e) {
+      return undefined
+    }
+    return file
+  }
+
+  /**
    * What the router is serving, with each model's load state. The registered
    * model behind each id is matched back on, so the UI can show a library
    * entry rather than a bare name — and models the router found on its own
@@ -581,7 +610,7 @@
       return { ok: false, code: 'NOT_ROUTER', message: 'The server is not running in router mode.' }
     }
     const r = await this.deps.exec.httpGetJson(base + '/v1/models', {
-      timeoutMs: 5000, headers: this._routerHeaders(),
+      timeoutMs: 5000, secretHeaders: this._routerHeaders(),
     })
     if (!r.ok || r.status !== 200) {
       return { ok: false, code: 'ROUTER_UNREACHABLE', message: r.message || ('HTTP ' + r.status) }
@@ -613,7 +642,7 @@
       return { ok: false, code: 'NO_MODEL', message: 'Name the model to act on.' }
     }
     const r = await this.deps.exec.httpPostJson(base + path, { model: id.trim() }, {
-      timeoutMs: 15000, headers: this._routerHeaders(),
+      timeoutMs: 15000, secretHeaders: this._routerHeaders(),
     })
     if (!r.ok) return { ok: false, code: 'ROUTER_UNREACHABLE', message: r.message }
     if (r.status !== 200 || !(r.data && r.data.success === true)) {

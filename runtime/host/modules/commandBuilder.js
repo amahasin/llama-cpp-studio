@@ -97,6 +97,7 @@
 
     // ---- server scoped ----
     { name: 'api-key', form: 'value', caps: ['api-key'] },
+    { name: 'api-key-file', form: 'value', caps: ['api-key-file'] },
     { name: 'slots', form: 'flag', caps: ['slots'] },
     { name: 'no-slots', form: 'flag', caps: ['no-slots'] },
     { name: 'path', form: 'value', caps: ['path'] },
@@ -250,7 +251,14 @@
     push('lora-scaled', [profile.loraScaled, profile.loraScale])
 
     // ---- server scoped ----
-    push('api-key', profile.apiKey)
+    // A command line is readable by any local process for as long as the server
+    // runs, so the key goes in through a file wherever the build can read one.
+    // `apiKeyFile` is only set when that flag is supported (see _apiKeyFile).
+    if (profile.apiKeyFile !== undefined && capsHave(caps, ['api-key-file'])) {
+      push('api-key-file', profile.apiKeyFile)
+    } else {
+      push('api-key', profile.apiKey)
+    }
     // /slots is exposed by default; only the opt-out needs a flag.
     if (profile.slots === false) push('no-slots', true)
     push('path', profile.webPath)

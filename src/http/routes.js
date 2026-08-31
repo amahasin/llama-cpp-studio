@@ -10,6 +10,7 @@ const path = require('node:path')
 
 const { WEB_DIR, clientBundlePath } = require('../lib/layout.js')
 const { MIME, sendJson, sendText, sendFile, notFound, readBody } = require('./respond.js')
+const { contentSecurityPolicy } = require('./csp.js')
 
 const BODY_LIMIT = 4 * 1024 * 1024
 const CLIENT_BUNDLE = 'client.bundle.js'
@@ -44,6 +45,9 @@ function createRouter(deps) {
     const page = indexTemplate
       .replace('__LLAMA_TOKEN__', token)
       .replace('__LLAMA_VERSION__', version)
+    res.setHeader('Content-Security-Policy', contentSecurityPolicy(manager))
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('Referrer-Policy', 'no-referrer')
     sendText(res, 200, page, MIME['.html'])
   }
 

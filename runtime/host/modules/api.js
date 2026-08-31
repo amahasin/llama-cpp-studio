@@ -8,13 +8,47 @@
 
   const util = LLAMA.util
 
+  // Settings values that must not leave the host in the clear, as
+  // [section, key] pairs. They ride on every `status` poll and on
+  // `settings.get`, both of which reach the browser and — through
+  // llama_status / llama_settings — any model driving the tools.
+  const SECRET_SETTINGS = [
+    ['server', 'apiKey'],
+    ['llamaCpp', 'githubToken'],
+  ]
+
+  // What a redacted secret is replaced with, and the token that identifies an
+  // unchanged one coming back. The settings form is populated from `status`, so
+  // simply omitting the key would leave the field blank and make an untouched
+  // Save wipe it; a placeholder that round-trips keeps the value safe.
+  const REDACTED = '••••••••'
+
+  /**
+   * Whether a value coming back in is the placeholder rather than a new secret.
+   *
+   * Not just an equality check: the bullets are multi-byte, and a client or a
+   * console that mangles the encoding turns them into '?' or U+FFFD. Storing
+   * that mojibake as somebody's API key would be a worse failure than the
+   * exposure the redaction exists to prevent, and no real key is made entirely
+   * of bullets and replacement characters.
+   */
+  function isRedacted(value) {
+    return typeof value === 'string' && value !== '' && /^[•?�]+$/.test(value)
+  }
+
+  // How long a latest-release lookup stays cached, by outcome.
+  const LATEST_TTL_MS = 5 * 60 * 1000
+  const LATEST_FAIL_TTL_MS = 60 * 1000
+  const LATEST_RATE_LIMIT_TTL_MS = 15 * 60 * 1000
+
   function Manager(deps) {
     this.deps = deps // { fs, subprocess, timer, workspaceRoot, sourceDir, log }
     this.initialized = false
     this.progressRing = []
     this.downloads = {}
     this._latestCache = undefined
-    this._latestAt = 0
+    this._latestKey = undefined
+    this._latestUntil = 0
     // `home` is the managed runtime directory. The harness mount derives it
     // from the workspace; the standalone app passes it directly.
     this.home = deps.home || util.joinPath(deps.workspaceRoot || '.', 'plugins', 'llama_cpp')
@@ -145,7 +179,10 @@
    * the next start. Hosts that do not fence writes simply have no allowWrite.
    */
   Manager.prototype._updateSettings = async function (patch) {
-    const result = await this.config.update(patch)
+    const result = await this.config.update(this._stripRedactedSecrets(patch))
+    // config.update echoes the stored config, secrets and all. Every other way
+    // out of here is redacted; this one has to be too.
+    if (result.ok === true && result.config !== undefined) result.config = this._safeSettings()
     if (result.ok === true && typeof this.deps.fs.allowWrite === 'function') {
       const paths = this.config.get('paths') || {}
       for (const key of Object.keys(paths)) this.deps.fs.allowWrite(paths[key])
@@ -279,10 +316,29 @@
       }
   }
 
+  /**
+   * The latest release, cached per outcome.
+   *
+   * Only successes used to be cached, so once GitHub started refusing — 60
+   * unauthenticated requests an hour, shared per IP — every subsequent poll
+   * spent another request against an allowance that was already gone, and the
+   * window never got the chance to look idle. A refusal is now remembered too,
+   * and a rate-limit for long enough to matter.
+   *
+   * The cache is keyed by backend: a selection worked out for CUDA is not the
+   * answer for a CPU-only install.
+   */
   Manager.prototype._latest = async function (backend) {
-    if (this._latestCache && Date.now() - this._latestAt < 5 * 60 * 1000) return this._latestCache
+    const key = String(backend || 'auto')
+    if (this._latestCache !== undefined && this._latestKey === key && Date.now() < this._latestUntil) {
+      return this._latestCache
+    }
     const r = await this.versions.latestVersion(backend)
-    if (r.ok) { this._latestCache = r; this._latestAt = Date.now() }
+    let ttl = LATEST_TTL_MS
+    if (!r.ok) ttl = r.code === 'GITHUB_RATE_LIMIT' ? LATEST_RATE_LIMIT_TTL_MS : LATEST_FAIL_TTL_MS
+    this._latestCache = r
+    this._latestKey = key
+    this._latestUntil = Date.now() + ttl
     return r
   }
 
@@ -372,8 +428,10 @@
       '-H', 'Content-Type: application/json',
     ]
     // An API key locks the endpoint against everything, this test included.
+    // It goes in through a curl config file rather than -H: a command line is
+    // readable by any local process, and this one would carry the key in clear.
     const apiKey = (this.config.get('server') || {}).apiKey
-    if (apiKey) argv.push('-H', 'Authorization: Bearer ' + apiKey)
+    if (apiKey) await this.exec.pushSecretHeaders(argv, { Authorization: 'Bearer ' + apiKey })
     argv.push('-d', payload, s.endpoint + '/chat/completions')
     const r = await this.exec.run(argv, { stdoutBytes: 4 * 1024 * 1024, timeoutMs: 305000 })
     if (r.spawnFailed) return { ok: false, code: 'CURL_SPAWN', message: r.error }
@@ -500,9 +558,42 @@
     }
   }
 
+  /**
+   * The settings as they may cross the boundary: everything, with the secrets
+   * replaced by a placeholder and a `<key>Set` boolean so the UI can still say
+   * whether one is configured. Nothing inside the manager reads a secret back
+   * through here — llama-server and the router take theirs from the config
+   * store directly — so there is no reveal option to get it wrong with.
+   */
   Manager.prototype._safeSettings = function () {
     const cfg = util.deepClone(this.config.data)
+    for (const [section, key] of SECRET_SETTINGS) {
+      const bag = cfg[section]
+      if (!util.isPlainObject(bag)) continue
+      const isSet = typeof bag[key] === 'string' && bag[key] !== ''
+      bag[key + 'Set'] = isSet
+      if (isSet) bag[key] = REDACTED
+    }
     return cfg
+  }
+
+  /**
+   * Drop any secret that came back as the placeholder: the caller is echoing
+   * what _safeSettings sent it, not setting a new value, and removing it from
+   * the patch leaves config.update's merge to keep what is already stored. An
+   * empty string is left alone — that is a deliberate "clear it".
+   */
+  Manager.prototype._stripRedactedSecrets = function (patch) {
+    if (!util.isPlainObject(patch)) return patch
+    const copy = util.deepClone(patch)
+    for (const [section, key] of SECRET_SETTINGS) {
+      const bag = copy[section]
+      if (!util.isPlainObject(bag)) continue
+      if (isRedacted(bag[key])) delete bag[key]
+      // The read-only companion flag is not a setting; never persist it.
+      delete bag[key + 'Set']
+    }
+    return copy
   }
 
   Manager.prototype._status = async function () {
@@ -534,7 +625,9 @@
       hardware: parts[3],
       downloads: this.models.activeDownloads(),
       progress: this.progressRing.slice(-30),
-      latestVersion: this._latestCache ? {
+      // Only a successful lookup describes a release. Failures are cached too
+      // now (see _latest), and one of those has no `latest` to read.
+      latestVersion: this._latestCache && this._latestCache.ok ? {
         tagName: this._latestCache.latest.tagName,
         publishedAt: this._latestCache.latest.publishedAt,
         backend: this._latestCache.selection.backend,

@@ -52,6 +52,10 @@ function patternAdmits(pattern, url, originLower, originHost) {
 function createOriginPolicy(options) {
   const host = options.host
   const allowedOrigins = options.allowedOrigins || function () { return '' }
+  const warn = options.warn || function () {}
+  // Warn once per distinct setting, not once per request: this runs on the
+  // polling path and a warning on every poll would be noise, not a signal.
+  let warnedFor
 
   function isLocal(url) {
     return url.hostname === host
@@ -74,7 +78,15 @@ function createOriginPolicy(options) {
       if (isLocal(url)) return true
 
       const setting = String(allowedOrigins() || '').trim()
-      if (setting === '*') return true
+      if (setting === '*') {
+        if (warnedFor !== setting) {
+          warnedFor = setting
+          warn('WARNING: remote access is open to every origin ("*"). Any site you'
+            + ' visit can drive this app through your browser. Name the origins you'
+            + ' actually need in Server Settings > Allowed Remote Access Sites.')
+        }
+        return true
+      }
       if (setting === '') return false
 
       const originLower = origin.toLowerCase()

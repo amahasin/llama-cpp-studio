@@ -19,6 +19,9 @@ const { createRouter } = require('./http/routes.js')
 
 const TOKEN_BYTES = 24
 
+// Addresses that keep the server on this machine only.
+const LOOPBACK = ['127.0.0.1', 'localhost', '::1']
+
 /** The remote-access allow-list, read from config on every request. */
 function allowedOriginsOf(manager) {
   return function () {
@@ -47,8 +50,18 @@ async function startServer(options) {
     manager, token, host, log,
     version: opts.version,
     indexTemplate: fs.readFileSync(path.join(WEB_DIR, 'index.html'), 'utf8'),
-    originPolicy: createOriginPolicy({ host, allowedOrigins: allowedOriginsOf(manager) }),
+    originPolicy: createOriginPolicy({
+      host, allowedOrigins: allowedOriginsOf(manager), warn: log,
+    }),
   }))
+
+  // Binding anything but loopback puts the UI — and the token-gated RPC behind
+  // it — on the network. That can be exactly what was wanted; it should still
+  // never be a surprise.
+  if (!LOOPBACK.includes(host)) {
+    log('WARNING: listening on ' + host + ', not just this machine. The UI is reachable'
+      + ' from the network by anyone who can read the session token.')
+  }
 
   const port = await new Promise(function (resolve, reject) {
     server.once('error', reject)

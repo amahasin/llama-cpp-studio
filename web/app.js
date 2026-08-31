@@ -7,7 +7,9 @@
 (function () {
   'use strict'
 
-  const TOKEN = window.__LLAMA_TOKEN
+  // Carried on <body> rather than in an inline <script>, so the page's
+  // Content-Security-Policy does not have to allow inline script at all.
+  const TOKEN = document.body.dataset.llamaToken
   const rootEl = document.getElementById('root')
   const offlineEl = document.getElementById('app-offline')
 

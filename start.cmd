@@ -19,7 +19,7 @@ echo Starting llama.cpp Studio in system tray (Router mode auto-start)...
 start "" /min powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0src\tray.ps1"
 echo.
 echo llama.cpp Studio is now running in the Windows System Tray.
-echo Web UI: http://127.0.0.1:8770/
+echo The Web UI has been opened in your browser; the tray icon reopens it.
 echo.
 echo You may safely close this terminal window.
 timeout /t 3 /nobreak >nul

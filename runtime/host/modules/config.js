@@ -41,6 +41,10 @@
         activeVersion: undefined,
         autoUpdateCheck: true,
         githubApiBase: 'https://api.github.com',
+        // Optional personal access token. Unauthenticated GitHub allows 60
+        // requests an hour per IP; a token raises that to 5000 for this user,
+        // which matters on a machine that checks for new builds often.
+        githubToken: undefined,
         huggingfaceBase: 'https://huggingface.co',
         downloadTimeoutMs: 2 * 60 * 60 * 1000,
       },
@@ -125,6 +129,12 @@
       const value = out.server[key]
       if (typeof value !== 'string' || value.trim() === '') out.server[key] = undefined
       else out.server[key] = value.trim()
+    }
+    // Same rule for the optional GitHub token: blank means "not set", never a
+    // bare Authorization header with nothing after the scheme.
+    if (out.llamaCpp !== undefined) {
+      const token = out.llamaCpp.githubToken
+      out.llamaCpp.githubToken = (typeof token !== 'string' || token.trim() === '') ? undefined : token.trim()
     }
     // TLS needs both halves or neither.
     if ((out.server.sslKeyFile === undefined) !== (out.server.sslCertFile === undefined)) {

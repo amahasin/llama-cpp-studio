@@ -17,6 +17,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const { createManager, loadHostModules } = require('../src/host.js')
+const { cleanScratch } = require('./helpers.js')
 
 const APP_ROOT = path.resolve(__dirname, '..')
 const TMP = path.join(APP_ROOT, '.tmp', 'vision-' + process.pid)
@@ -207,8 +208,10 @@ async function main() {
 }
 
 function cleanup() {
-  try { fs.rmSync(TMP, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) } catch (_e) { /* noop */ }
-  try { fs.rmdirSync(path.join(APP_ROOT, '.tmp')) } catch (_e) { /* not empty */ }
+  // Was a silent try/catch that gave up after one attempt, which is how .tmp
+  // came to hold a dozen orphaned scratch directories. cleanScratch waits the
+  // lock out and says so when it genuinely cannot remove the tree.
+  cleanScratch(TMP)
 }
 
 main()

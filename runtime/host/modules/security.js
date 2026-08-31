@@ -28,11 +28,18 @@
     if (hostPart.includes('@')) {
       return { ok: false, code: 'URL_USERINFO', message: 'URLs with embedded credentials are not allowed.' }
     }
-    if (!/^[A-Za-z0-9._~-]+(:\d+)?$/.test(hostPart.split(':')[0]) === false && hostPart.includes(':')) {
-      // IPv6 literals are out of scope; fall through to the conservative check below.
-    }
     if (hostPart.length === 0) {
       return { ok: false, code: 'BAD_URL_HOST', message: 'URL has no host.' }
+    }
+    // A hostname or IPv4 address, with an optional port. IPv6 literals — which
+    // are bracketed — are deliberately not accepted: nothing this app downloads
+    // from is addressed that way. This check replaces a condition whose body
+    // was empty, so every host shape reached the return below unexamined.
+    if (!/^[A-Za-z0-9._~-]+(:\d{1,5})?$/.test(hostPart)) {
+      return {
+        ok: false, code: 'BAD_URL_HOST',
+        message: 'URL host must be a hostname or IPv4 address with an optional port.',
+      }
     }
     return { ok: true, url: s }
   }

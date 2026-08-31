@@ -97,7 +97,10 @@ async function createManager(options) {
 
   manager.shutdown = async function () {
     try { await manager.dispose() } catch (_e) { /* noop */ }
-    subprocess.terminateAll()
+    // Awaited: the children have to be gone before this resolves, or whatever
+    // runs next finds the data directory still locked and llama-server still
+    // holding the GPU.
+    try { await subprocess.terminateAll() } catch (_e) { /* noop */ }
     timer.disposeAll()
   }
   return { LLAMA, manager, dataDir, services: { fs: fsService, subprocess, timer } }
