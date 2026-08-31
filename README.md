@@ -136,6 +136,7 @@ standalone/
 ├── src/
 │   ├── main.js              boot order: manager → server → router → banner
 │   ├── host.js              loads ../src/host/**  →  Manager on local services
+│   ├── idle.js              releases a model nobody is using
 │   ├── server.js            binds the socket, assembles the routes below
 │   ├── lib/
 │   │   ├── layout.js        every path, and packed-vs-in-place detection
@@ -195,6 +196,7 @@ standalone/
     ├── secrets.test.js      secret redaction, and the save round-trip
     ├── proxy.test.js        llama-server through this origin, session gate intact
     ├── tray.test.js         the tray reports the real state, not a fixed one
+    ├── idle.test.js         an unused model gives its memory back; a busy one does not
     ├── smoke.js             boots the real app and drives it over RPC
     ├── paths.test.js        the folder stays self-contained when it moves
     ├── vision.test.js       the per-model vision toggle, end to end
@@ -341,6 +343,38 @@ an older one is refused at launch with a message saying so rather than started
 blind. The generated preset is written to `<data>\configs\router-presets.ini`;
 it is regenerated every start, so edit Model settings rather than that file.
 
+## Idle unload
+
+A loaded model holds its weights in VRAM for as long as `llama-server` has it,
+whether or not anyone is using it — one question in the morning can keep the
+whole card occupied all day. **Server Config › Unload an idle model after**
+sets how long a model may sit unused before its memory is given back. It
+defaults to **30 minutes**; `0` keeps models loaded forever, which is the old
+behaviour.
+
+What "unload" means depends on the mode, and the difference matters:
+
+| Mode | What happens | Getting it back |
+|---|---|---|
+| Router | the model is unloaded, `llama-server` keeps running | automatic — the next request loads it again (`--models-autoload`) |
+| Single model | the server is stopped, because the model *is* the process | manual — start it from the Dashboard |
+
+Activity means **`llama-server`'s own counters** — decode calls, prompt and
+generated tokens, and whether any slot is busy — not anything the browser does.
+That is deliberate in both directions: a script hitting the OpenAI-compatible
+endpoint keeps its model loaded even with no browser open, and leaving the
+dashboard open overnight does not pin a model in memory. A request in flight,
+or one still queued, is never unloaded out from under.
+
+```powershell
+llama-studio --idle-unload 15   # override the saved setting for this run
+llama-studio --idle-unload 0    # keep models loaded
+```
+
+llama.cpp has its own `--sleep-idle-seconds`, which you can still pass through
+Advanced options if you would rather `llama-server` handled it; this setting is
+independent of it, and enabling both would just mean whichever fires first.
+
 ## Data directory
 
 Defaults to `.\data` inside the app folder — builds, models, per-model settings,
@@ -485,7 +519,7 @@ node tests\vision.test.js          # the per-model vision toggle, end to end
 node tests\router.test.js          # router mode: presets, ids, load/unload
 node tests\units.test.js           # the pure modules, no app boot
 node tests\secrets.test.js         # secret redaction and its round trip
-npm test                           # all nine, with a summary table
+npm test                           # all ten, with a summary table
 ```
 
 `units.test.js` is the fast one and needs nothing installed: it feeds generated

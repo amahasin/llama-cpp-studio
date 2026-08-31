@@ -33,6 +33,8 @@ function main() {
     /present: chat-open-in-new-tab/.test(output))
   check('the sidebar carries the app mark',
     /present: app-mark/.test(output))
+  check('Server Config can set the idle unload timeout',
+    /present: idle-unload-field/.test(output))
 
   return finish('bundle.test.js')
 }

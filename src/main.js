@@ -15,6 +15,7 @@ const { requireSupportedPlatform } = require('./lib/platform.js')
 const endpoint = require('./cli/endpoint.js')
 const { statusBanner } = require('./cli/banner.js')
 const { openBrowser } = require('./cli/browser.js')
+const { createIdleUnloader } = require('./idle.js')
 
 const VERSION = require('../package.json').version
 
@@ -60,6 +61,19 @@ async function autostartRouter(manager, wanted) {
 }
 
 /**
+ * Release a model that nobody is using. The timeout comes from Server Config
+ * unless --idle-unload overrode it; 0 turns it off. Returns the supervisor so
+ * shutdown can stop its timer.
+ */
+function startIdleUnloader(manager, override, log) {
+  const configured = manager.config ? (manager.config.get('server') || {}) : {}
+  const minutes = override === undefined ? configured.idleUnloadMinutes : override
+  const unloader = createIdleUnloader({ manager, minutes, log })
+  unloader.start()
+  return unloader
+}
+
+/**
  * Stop cleanly on Ctrl+C, on SIGTERM, and — when a desktop shell started us and
  * is holding our stdin open — when that shell closes it. A GUI parent has no
  * console to send Ctrl+C through, and killing the process outright would leave
@@ -73,6 +87,7 @@ function installShutdown(deps) {
     stopping = true
     console.log('\n  shutting down (' + signal + ')…')
     if (deps.endpointFile !== undefined) endpoint.remove(deps.endpointFile)
+    if (deps.idleUnloader !== undefined) deps.idleUnloader.stop()
     try { await deps.http.close() } catch (_e) { /* noop */ }
     try { await deps.manager.shutdown() } catch (_e) { /* noop */ }
     console.log('  stopped.')
@@ -131,6 +146,7 @@ async function main() {
   }
 
   const routerStartError = await autostartRouter(manager, args.autostart)
+  const idleUnloader = startIdleUnloader(manager, args.idleUnload, log)
 
   if (args.endpointFile !== undefined) {
     endpoint.write(args.endpointFile, {
@@ -148,7 +164,7 @@ async function main() {
 
   if (args.open) openBrowser(http.url)
 
-  installShutdown({ http, manager, endpointFile: args.endpointFile })
+  installShutdown({ http, manager, idleUnloader, endpointFile: args.endpointFile })
 }
 
 main().catch(function (err) {

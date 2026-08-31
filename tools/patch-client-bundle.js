@@ -92,6 +92,65 @@ const PATCHES = [
       "          h('path', { fill: 'currentColor', stroke: 'none', d: '" + LLAMA_PATH + "' }))",
     ].join('\n'),
   },
+  {
+    module: 'server-config.js',
+    name: 'idle-unload-stamp',
+    why: 'the settings form re-reads from status, so the field has to be in the '
+      + 'stamp or an externally changed value never shows up',
+    present: 'server.idleUnloadMinutes,',
+    find: '      server.mode, server.routerModelsMax, server.routerAutoload,',
+    replace: '      server.mode, server.routerModelsMax, server.routerAutoload, server.idleUnloadMinutes,',
+  },
+  {
+    module: 'server-config.js',
+    name: 'idle-unload-form',
+    why: 'the form needs the current value in order to show it',
+    present: 'idleUnloadMinutes: server.idleUnloadMinutes',
+    find: '        routerAutoload: server.routerAutoload !== false,',
+    replace: [
+      '        routerAutoload: server.routerAutoload !== false,',
+      '        idleUnloadMinutes: server.idleUnloadMinutes === undefined ? 30 : server.idleUnloadMinutes,',
+    ].join('\n'),
+  },
+  {
+    module: 'server-config.js',
+    name: 'idle-unload-save',
+    why: 'and has to send it back when Save is pressed',
+    present: 'idleUnloadMinutes: Number(form.idleUnloadMinutes)',
+    find: '          routerAutoload: form.routerAutoload === true,',
+    replace: [
+      '          routerAutoload: form.routerAutoload === true,',
+      '          idleUnloadMinutes: Number(form.idleUnloadMinutes),',
+    ].join('\n'),
+  },
+  {
+    module: 'server-config.js',
+    name: 'idle-unload-field',
+    why: 'without a control the timeout is only reachable by editing config.json',
+    present: 'Unload an idle model after',
+    find: [
+      "      form.mode === 'router'",
+      "        ? h(comp.Notice, { tone: 'info', style: { marginTop: 12 } },",
+    ].join('\n'),
+    replace: [
+      "      h('div', { style: { marginTop: 4 } },",
+      '        h(comp.Field, {',
+      "          label: 'Unload an idle model after', flag: 'minutes',",
+      "          hint: form.mode === 'router'",
+      "            ? 'A model nobody has sent a request to gives its memory back. The router'",
+      "              + ' stays up and loads it again on the next request. 0 keeps models loaded.'",
+      "            : 'A model nobody has sent a request to gives its memory back. In single-model'",
+      "              + ' mode that means stopping the server, and nothing starts it again for you.'",
+      "              + ' 0 keeps the model loaded.',",
+      '        },',
+      '        h(comp.NumberInput, {',
+      '          value: form.idleUnloadMinutes, min: 0, max: 1440,',
+      "          onChange: function (v) { set('idleUnloadMinutes', v) },",
+      '        }))),',
+      "      form.mode === 'router'",
+      "        ? h(comp.Notice, { tone: 'info', style: { marginTop: 12 } },",
+    ].join('\n'),
+  },
 ]
 
 function readBundle() {

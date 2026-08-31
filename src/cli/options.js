@@ -36,6 +36,7 @@ const SPEC = {
     '--host': { key: 'host', coerce: AS_STRING },
     '--data': { key: 'data', coerce: AS_PATH },
     '--endpoint-file': { key: 'endpointFile', coerce: AS_PATH },
+    '--idle-unload': { key: 'idleUnload', coerce: AS_NUMBER },
   },
 }
 
@@ -56,6 +57,8 @@ function helpText(version) {
     '                    write {url, port, pid} there once listening, and delete it',
     '                    on shutdown. How the desktop shell finds the server it',
     '                    just started, without parsing this output.',
+    '  --idle-unload <m> release a loaded model after m minutes with no request',
+    '                    (0 turns it off; the saved setting is used when omitted)',
     '  --status          print status as JSON and exit',
     '  --version         print the version and exit',
     '  --help            show this help',

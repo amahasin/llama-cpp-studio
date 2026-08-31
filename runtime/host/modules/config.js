@@ -59,6 +59,11 @@
         mode: 'router',
         // Automatically start the server (in router mode) when the application launches.
         autostart: true,
+        // Release a model's memory after this many minutes with no request.
+        // In router mode the model is unloaded and llama-server stays up, so
+        // the next request loads it again; in single-model mode there is no
+        // unload and the server is stopped. 0 disables it.
+        idleUnloadMinutes: 30,
         // How many models the router may hold at once. llama.cpp defaults to
         // four; one is the right default on a desktop GPU, where a second
         // 20GB model does not fit beside the first and the useful behaviour is
@@ -117,6 +122,10 @@
       out.server.threadsHttp = Number.isNaN(httpThreads) ? undefined : util.clamp(Math.round(httpThreads), 1, 64)
     }
     out.server.mode = ['single', 'router'].includes(out.server.mode) ? out.server.mode : 'single'
+    const idle = Number(out.server.idleUnloadMinutes)
+    // Up to a day; anything longer is indistinguishable from "off" and is
+    // more likely a typo than an intention.
+    out.server.idleUnloadMinutes = Number.isNaN(idle) ? 30 : util.clamp(Math.round(idle), 0, 1440)
     const routerMax = Number(out.server.routerModelsMax)
     out.server.routerModelsMax = Number.isNaN(routerMax) ? 1 : util.clamp(Math.round(routerMax), 0, 16)
     out.server.routerAutoload = out.server.routerAutoload !== false
