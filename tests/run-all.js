@@ -17,6 +17,7 @@ const SUITES = [
   ['proxy.test.js', 'llama-server reached through this origin, with the session gate'],
   ['tray.test.js', 'the system tray reports the real server state, not a fixed one'],
   ['idle.test.js', 'an unused model gives its memory back, a busy one never does'],
+  ['mtp.test.js', 'multi-token-prediction heads: detection, tagging and the argv'],
   ['smoke.js', 'boots the real app and drives it over RPC'],
   ['paths.test.js', 'the folder stays self-contained when it moves'],
   ['vision.test.js', 'the per-model vision toggle, end to end'],

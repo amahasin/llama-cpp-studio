@@ -197,6 +197,7 @@ standalone/
     ├── proxy.test.js        llama-server through this origin, session gate intact
     ├── tray.test.js         the tray reports the real state, not a fixed one
     ├── idle.test.js         an unused model gives its memory back; a busy one does not
+    ├── mtp.test.js          MTP head detection, tagging and the draft-model argv
     ├── smoke.js             boots the real app and drives it over RPC
     ├── paths.test.js        the folder stays self-contained when it moves
     ├── vision.test.js       the per-model vision toggle, end to end
@@ -342,6 +343,34 @@ child servers. Router mode needs a llama.cpp build with `--models-preset`;
 an older one is refused at launch with a message saying so rather than started
 blind. The generated preset is written to `<data>\configs\router-presets.ini`;
 it is regenerated every start, so edit Model settings rather than that file.
+
+## Multi-token prediction (MTP)
+
+Some repositories ship a second GGUF beside the model — `mtp-<model>.gguf`,
+sometimes under an `MTP/` subfolder, as
+[unsloth/gemma-4-26B-A4B-it-qat-GGUF](https://huggingface.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF)
+does. It is a multi-token-prediction head, and llama.cpp takes one as the
+**draft model for speculative decoding**, which is what makes generation
+faster.
+
+The app treats these exactly like vision projectors:
+
+- **Detected** when a model is imported, downloaded or rescanned — beside the
+  file and in an `MTP/` subfolder. Where a repository ships several
+  quantizations of the head, the one whose name corresponds to the model wins,
+  and a quantized head is preferred over the full-precision one.
+- **Tagged** `mtp` on the model card, so the library says which models are
+  being started with one. A head turned off reads `mtp off`.
+- **Never listed as a model of its own.** A head carries no weights you can
+  serve, so it is filed as a companion alongside projectors.
+- **Passed** as `--spec-draft-model` on launch, in single-model mode and in the
+  router's preset file alike — but only when the installed build advertises the
+  flag, so an older llama.cpp is not handed an option it would refuse to start
+  with.
+- **Switchable** per model: Model settings › Speculative decoding.
+
+Downloading the pair in either order works: a head that arrives after its model
+is attached to it, and a model that arrives after its head picks it up.
 
 ## Idle unload
 
@@ -519,7 +548,7 @@ node tests\vision.test.js          # the per-model vision toggle, end to end
 node tests\router.test.js          # router mode: presets, ids, load/unload
 node tests\units.test.js           # the pure modules, no app boot
 node tests\secrets.test.js         # secret redaction and its round trip
-npm test                           # all ten, with a summary table
+npm test                           # all eleven, with a summary table
 ```
 
 `units.test.js` is the fast one and needs nothing installed: it feeds generated

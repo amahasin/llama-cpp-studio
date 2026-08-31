@@ -98,6 +98,10 @@
     // ---- server scoped ----
     { name: 'api-key', form: 'value', caps: ['api-key'] },
     { name: 'api-key-file', form: 'value', caps: ['api-key-file'] },
+    // A multi-token-prediction head is handed to llama.cpp as the draft
+    // model for speculative decoding. The flag was renamed along the way,
+    // so the older spellings are accepted as capabilities too.
+    { name: 'spec-draft-model', form: 'value', caps: ['spec-draft-model', 'model-draft', 'md'] },
     { name: 'slots', form: 'flag', caps: ['slots'] },
     { name: 'no-slots', form: 'flag', caps: ['no-slots'] },
     { name: 'path', form: 'value', caps: ['path'] },
@@ -249,6 +253,9 @@
     push('log-disable', profile.logDisable === true)
     push('lora', profile.lora)
     push('lora-scaled', [profile.loraScaled, profile.loraScale])
+
+    // The MTP head, when one was found and not turned off for this model.
+    push('spec-draft-model', profile.draftModel)
 
     // ---- server scoped ----
     // A command line is readable by any local process for as long as the server

@@ -117,6 +117,39 @@
   }
 
   /**
+   * The multi-token-prediction head for one model: an explicit path wins,
+   * otherwise the one recorded when the model was imported or downloaded, and
+   * finally a scan of the directory beside the model.
+   *
+   * llama.cpp consumes it as the draft model for speculative decoding, so it is
+   * put on `draftModel` rather than passed as a flag of its own. Turning MTP off
+   * is checked first and drops the head however it was found, exactly as vision
+   * does — otherwise detection would keep handing it straight back.
+   *
+   * Mutates and returns `profile`.
+   */
+  ServerManager.prototype._resolveMtp = async function (profile, model) {
+    if (profile.mtp === false) {
+      delete profile.draftModel
+      return profile
+    }
+    let head = profile.mtpPath
+    if (head === undefined || head === '') {
+      head = model.mtpPath
+      if (head === undefined && typeof this.deps.models.detectMtp === 'function') {
+        const found = await this.deps.models.detectMtp(model.path)
+        head = found.mtp
+      }
+    }
+    if (head !== undefined && head !== '') {
+      const stat = await this.deps.exec.stat(head)
+      if (stat.exists === true && stat.isDir !== true) profile.draftModel = head
+      else delete profile.draftModel
+    }
+    return profile
+  }
+
+  /**
    * How many layers to offload when the profile says "auto", plus the two
    * numbers the offload report is built from. Shared so a model served through
    * the router is planned the same way as one served on its own.
@@ -220,6 +253,7 @@
     profile.apiKeyFile = await this._apiKeyFile(srvCfg.apiKey, versionEntry.capabilities || {})
 
     await this._resolveVision(profile, model)
+    await this._resolveMtp(profile, model)
 
     // 4. Backend validation against the installed build.
     const requestedBackend = o.backend || config.get('hardware').backend || 'auto'
@@ -389,6 +423,7 @@
       const base = LLAMA.profiles.defaultProfile({ metadata: model.metadata || {}, hardware: hw })
       const profile = util.deepMerge(base, model.settings || {})
       await this._resolveVision(profile, model)
+      await this._resolveMtp(profile, model)
       if (profile.gpuLayers === undefined || profile.gpuLayers === 'auto') {
         profile.gpuLayers = this._autoGpuLayers(model, profile, buildBackend, hw).gpuLayers
       }
@@ -617,18 +652,38 @@
     }
     const known = new Map()
     for (const s of this.process.sections || []) known.set(s.id, s)
+
+    // llama.cpp reports a model as loading or loaded and nothing in between —
+    // there is no progress figure to pass on, at any log verbosity. Timing how
+    // long the load has been going is the honest substitute: on a 20GB model
+    // that is the difference between "working" and "stuck".
+    const since = this._loadingSince || (this._loadingSince = {})
+    const now = Date.now()
+
     const models = ((r.data && r.data.data) || [])
       .filter(function (m) { return known.has(m.id) })
       .map(function (m) {
         const mine = known.get(m.id)
-        return {
+        const state = (m.status && m.status.value) || 'unknown'
+        const working = state === 'loading' || state === 'unloading'
+        if (working) {
+          if (since[m.id] === undefined) since[m.id] = now
+        } else {
+          delete since[m.id]
+        }
+        const row = {
           id: m.id,
-          state: (m.status && m.status.value) || 'unknown',
+          state,
           modelId: mine ? mine.modelId : undefined,
           name: mine ? mine.name : m.id,
           path: mine ? mine.path : undefined,
           managed: true,
         }
+        // Only present while it is actually working. Set to undefined instead,
+        // it would cross the command boundary as null — jsonSafe() rewrites
+        // undefined that way — and read as a number that is not one.
+        if (working) row.workingSeconds = Math.max(0, Math.round((now - since[m.id]) / 1000))
+        return row
       })
     return { ok: true, models }
   }

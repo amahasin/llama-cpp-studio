@@ -16,6 +16,18 @@
   // is a projector, never a main model.
   const MMPROJ_RE = /mmproj/i
 
+  // Multi-token-prediction heads ship as a separate GGUF beside the model, the
+  // same way a vision projector does — "mtp-<model>.gguf", sometimes under an
+  // MTP/ subfolder (see unsloth/gemma-4-26B-A4B-it-qat-GGUF). llama.cpp takes
+  // one as the draft model for speculative decoding.
+  //
+  // Anchored on word boundaries so a model that merely has the letters in its
+  // name is not mistaken for a head file.
+  const MTP_RE = /(?:^|[^a-z0-9])mtp(?:[^a-z0-9]|$)/i
+
+  // Where a repository keeps its MTP heads when they are not beside the model.
+  const MTP_SUBDIRS = ['MTP', 'mtp']
+
   // "unsloth/Qwen3-VL-8B-GGUF" -> "unsloth__Qwen3-VL-8B-GGUF"
   function repoFolder(repo) {
     return String(repo).replace(/[\\/]+/g, '__').replace(/[^A-Za-z0-9._-]/g, '-')
@@ -98,10 +110,12 @@
     if (!util.isPlainObject(m) || m.managed !== true) return m
     const path = await this._rebaseFile(m.path)
     const mmproj = await this._rebaseFile(m.mmprojPath)
-    if (path === undefined && mmproj === undefined) return m
+    const mtp = await this._rebaseFile(m.mtpPath)
+    if (path === undefined && mmproj === undefined && mtp === undefined) return m
     const out = util.deepClone(m)
     if (path !== undefined) out.path = path
     if (mmproj !== undefined) out.mmprojPath = mmproj
+    if (mtp !== undefined) out.mtpPath = mtp
     return out
   }
 
@@ -135,16 +149,28 @@
   }
 
   /**
-   * A projector (mmproj-*.gguf) carries no weights you can serve: llama-server
-   * takes it through --mmproj alongside a real model. Registrations made before
-   * this distinction existed are classified here too, by name, so a library
-   * that already collected projectors tidies itself up on the next read rather
-   * than needing manual cleanup.
+   * Companion files carry no weights you can serve on their own: a projector
+   * (mmproj-*.gguf) goes to llama-server through --mmproj, and a multi-token
+   * prediction head (mtp-*.gguf) through --spec-draft-model. Both ride along
+   * with a real model.
+   *
+   * Registrations made before this distinction existed are classified here too,
+   * by name, so a library that already collected companion files tidies itself
+   * up on the next read rather than needing manual cleanup.
+   *
+   * Returns the kind, or undefined for an ordinary model.
    */
+  function companionKind(entry) {
+    if (entry.kind === 'mmproj' || entry.kind === 'mtp') return entry.kind
+    if (entry.kind === 'model') return undefined
+    const name = String(entry.name || util.basename(entry.path || ''))
+    if (MMPROJ_RE.test(name)) return 'mmproj'
+    if (MTP_RE.test(name)) return 'mtp'
+    return undefined
+  }
+
   function isProjector(entry) {
-    if (entry.kind === 'mmproj') return true
-    if (entry.kind === 'model') return false
-    return MMPROJ_RE.test(String(entry.name || util.basename(entry.path || '')))
+    return companionKind(entry) !== undefined
   }
 
   /**
@@ -167,8 +193,9 @@
       const m = util.deepClone(raw)
       delete m.scanError
       m.profiles = m.profiles || []
-      if (isProjector(m)) {
-        m.kind = 'mmproj'
+      const companion = companionKind(m)
+      if (companion !== undefined) {
+        m.kind = companion
         projectors.push(m)
       } else {
         models.push(m)
@@ -240,6 +267,55 @@
    * Returns { ok, mmproj?, candidates[] } — mmproj is the best match:
    * a projector whose name shares the model's stem wins over a generic one.
    */
+  /**
+   * The multi-token-prediction head that belongs to this model, if one is
+   * sitting beside it — or in the MTP/ subfolder some repositories use.
+   *
+   * Same shape and the same stem-affinity ranking as detectMmproj: a repository
+   * often ships several quantizations of the head, and the one whose name
+   * corresponds to the model is the one to take.
+   */
+  ModelManager.prototype.detectMtp = async function (modelPath) {
+    const dir = util.dirname(modelPath)
+    const self = util.basename(modelPath).toLowerCase()
+    const candidates = []
+
+    // Windows treats MTP/ and mtp/ as one directory, so the same file would
+    // otherwise be listed once per spelling.
+    const seen = new Set()
+    const scan = async (where) => {
+      const items = await this.exec.listDir(where)
+      if (items === undefined) return
+      for (const it of items) {
+        if (it.isDir === true) continue
+        if (!/\.gguf$/i.test(it.name)) continue
+        if (it.name.toLowerCase() === self) continue
+        if (!MTP_RE.test(it.name)) continue
+        const full = util.joinPath(where, it.name)
+        const key = full.toLowerCase()
+        if (seen.has(key)) continue
+        seen.add(key)
+        candidates.push({ name: it.name, path: full, size: it.size })
+      }
+    }
+
+    await scan(dir)
+    for (const sub of MTP_SUBDIRS) await scan(util.joinPath(dir, sub))
+
+    if (candidates.length === 0) return { ok: true, mtp: undefined, candidates: [] }
+
+    const stem = normalizeStem(self, false)
+    const scored = candidates.map(function (c) {
+      let score = stemAffinity(stem, normalizeStem(c.name, true))
+      // The head has to run alongside the model on the same card; the smaller
+      // quantizations are the sane default when a repository ships several.
+      if (/q4|q8/i.test(c.name)) score += 0.5
+      return { c, score }
+    }).sort(function (a, b) { return b.score - a.score })
+
+    return { ok: true, mtp: scored[0].c.path, candidates: candidates.map(function (c) { return c.path }) }
+  }
+
   ModelManager.prototype.detectMmproj = async function (modelPath) {
     const dir = util.dirname(modelPath)
     const items = await this.exec.listDir(dir)
@@ -303,10 +379,52 @@
     return best.m.name
   }
 
+  /**
+   * The same wiring for a multi-token-prediction head: point a model in the same
+   * directory at a head that has just arrived, so downloading the pair in either
+   * order ends up connected. A head under an MTP/ subfolder belongs to the model
+   * in the directory above it.
+   */
+  ModelManager.prototype._attachMtp = function (meta, head) {
+    const headDir = util.dirname(head.path).toLowerCase()
+    const parentDir = util.dirname(util.dirname(head.path)).toLowerCase()
+    const headStem = normalizeStem(head.name, true)
+
+    const siblings = meta.models.filter(function (m) {
+      if (m.id === head.id) return false
+      if (companionKind(m) !== undefined) return false
+      const dir = util.dirname(m.path).toLowerCase()
+      return dir === headDir || dir === parentDir
+    })
+
+    for (const m of siblings) {
+      const candidates = Array.isArray(m.mtpCandidates) ? m.mtpCandidates.slice() : []
+      if (!candidates.includes(head.path)) candidates.push(head.path)
+      m.mtpCandidates = candidates
+    }
+
+    const free = siblings.filter(function (m) { return m.mtpPath === undefined })
+    if (free.length === 0) return undefined
+
+    const ranked = free.map(function (m) {
+      return { m: m, score: stemAffinity(headStem, normalizeStem(m.name, false)) }
+    }).sort(function (a, b) { return b.score - a.score })
+
+    const best = ranked[0]
+    // A head from the wrong model produces wrong drafts, so several candidates
+    // need the names to actually correspond before one is chosen.
+    if (free.length > 1 && best.score < MIN_AFFINITY) return undefined
+    best.m.mtpPath = head.path
+    return best.m.name
+  }
+
   ModelManager.prototype._withMmproj = async function (entry) {
     const found = await this.detectMmproj(entry.path)
     entry.mmprojPath = found.mmproj
     entry.mmprojCandidates = found.candidates
+    const mtp = await this.detectMtp(entry.path)
+    entry.mtpPath = mtp.mtp
+    entry.mtpCandidates = mtp.candidates
     return entry
   }
 
@@ -377,7 +495,16 @@
       metadata: inspect.metadata,
       profiles: [],
     }
-    if (MMPROJ_RE.test(entry.name)) {
+    const importedKind = companionKind({ name: entry.name })
+    if (importedKind === 'mtp') {
+      entry.kind = 'mtp'
+      meta.models.push(entry)
+      const linked = this._attachMtp(meta, entry)
+      await this._writeMeta(meta)
+      this.log('imported MTP head ' + entry.name + (linked ? '; attached to ' + linked : ''))
+      return { ok: true, model: entry, mtp: true, attachedTo: linked }
+    }
+    if (importedKind === 'mmproj') {
       entry.kind = 'mmproj'
       meta.models.push(entry)
       const linked = this._attachProjector(meta, entry)
@@ -394,10 +521,17 @@
       entry.mmprojPath = alt.mmproj
       entry.mmprojCandidates = alt.candidates
     }
+    if (entry.mtpPath === undefined && mode === 'copy') {
+      // Same for the MTP head: it stays where the original model was.
+      const alt = await this.detectMtp(path)
+      entry.mtpPath = alt.mtp
+      entry.mtpCandidates = alt.candidates
+    }
     meta.models.push(entry)
     await this._writeMeta(meta)
     this.log('imported model ' + entry.name + (mode === 'copy' ? ' (copied)' : ' (referenced)')
-      + (entry.mmprojPath ? '; vision projector detected: ' + util.basename(entry.mmprojPath) : ''))
+      + (entry.mmprojPath ? '; vision projector detected: ' + util.basename(entry.mmprojPath) : '')
+      + (entry.mtpPath ? '; MTP head detected: ' + util.basename(entry.mtpPath) : ''))
     return { ok: true, model: entry, copied: mode === 'copy' }
   }
 
@@ -420,7 +554,13 @@
       .filter((f) => f && typeof f.path === 'string' && /\.gguf$/i.test(f.path))
       // Flagged so the picker can say which rows are companion projectors
       // rather than models you can run on their own.
-      .map((f) => ({ path: String(f.path), size: Number(f.size) || 0, mmproj: MMPROJ_RE.test(String(f.path)), lfs: f.lfs !== undefined ? !!f.lfs : undefined }))
+      .map((f) => ({
+        path: String(f.path),
+        size: Number(f.size) || 0,
+        mmproj: MMPROJ_RE.test(String(f.path)),
+        mtp: MTP_RE.test(String(f.path)),
+        lfs: f.lfs !== undefined ? !!f.lfs : undefined,
+      }))
       .sort((a, b) => a.path.localeCompare(b.path))
     if (files.length === 0) {
       return {
@@ -540,12 +680,14 @@
     if (!inspect.ok) {
       return { ok: false, code: 'DOWNLOADED_INVALID', message: 'The downloaded file is not a valid GGUF: ' + inspect.message }
     }
-    const projector = MMPROJ_RE.test(localName)
+    // A projector or an MTP head is a companion file, not something to serve.
+    const kind = companionKind({ name: localName }) || 'model'
+    const projector = kind === 'mmproj'
     const entry = {
-      id: util.uid(projector ? 'mmproj' : 'model'),
+      id: util.uid(kind === 'model' ? 'model' : kind),
       name: localName,
       path: dest,
-      kind: projector ? 'mmproj' : 'model',
+      kind,
       managed: true,
       location: 'downloaded',
       source: { kind: 'huggingface', repo: repoCheck.repo, filename },
@@ -554,7 +696,7 @@
       metadata: inspect.metadata,
       profiles: [],
     }
-    if (!projector) await this._withMmproj(entry)
+    if (kind === 'model') await this._withMmproj(entry)
 
     // Re-read rather than reusing the copy taken before the transfer: several
     // downloads can be in flight at once, and each finishing one must not write
@@ -566,11 +708,15 @@
     fresh.models.push(entry)
     let attached
     if (projector) attached = this._attachProjector(fresh, entry)
+    // The pair can arrive in either order, so a head that lands after its model
+    // is wired up now rather than waiting for a rescan.
+    if (kind === 'mtp') attached = this._attachMtp(fresh, entry)
     await this._writeMeta(fresh)
 
-    this.log('downloaded ' + (projector ? 'vision projector ' : 'model ') + localName
+    const what = kind === 'mmproj' ? 'vision projector ' : (kind === 'mtp' ? 'MTP head ' : 'model ')
+    this.log('downloaded ' + what + localName
       + ' from ' + repoCheck.repo + (attached ? '; attached to ' + attached : ''))
-    return { ok: true, model: entry, projector, attachedTo: attached }
+    return { ok: true, model: entry, projector, mtp: kind === 'mtp', attachedTo: attached }
   }
 
   ModelManager.prototype.cancelDownload = async function (id) {
@@ -757,5 +903,5 @@
   }
 
   LLAMA.modules.push('models')
-  LLAMA.models = { ModelManager, HEAD_LADDER, repoFolder, MMPROJ_RE }
+  LLAMA.models = { ModelManager, HEAD_LADDER, repoFolder, MMPROJ_RE, MTP_RE, companionKind }
 })(globalThis.LLAMA)

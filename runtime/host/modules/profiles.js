@@ -45,6 +45,8 @@
     repeatPenalty: 'float', repeatLastN: 'int', presencePenalty: 'float', frequencyPenalty: 'float',
     seed: 'int', flashAttn: 'bool', noMmap: 'bool', mlock: 'bool',
     cacheTypeK: 'string', cacheTypeV: 'string', mmproj: 'path', vision: 'bool', jinja: 'bool',
+    // Multi-token prediction: the head file, and whether to use it.
+    mtpPath: 'path', mtp: 'bool',
     toolCalling: 'bool', contBatching: 'bool', cacheReuse: 'int', threadsHttp: 'int',
     noWebui: 'bool', nCpuMoe: 'int', threadsDraft: 'int',
     ropeScaling: 'string', ropeScale: 'float', ropeFreqBase: 'float',

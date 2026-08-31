@@ -49,6 +49,12 @@ repository was unavailable.
 | `modules/config.js` | new `llamaCpp.githubToken`, normalized like the other optional strings | 60 unauthenticated GitHub requests/hour is a recurring failure |
 | `modules/github.js` | sends `Authorization` when a token is set; remediation text distinguishes the two cases | as above |
 | `modules/config.js` | new `server.idleUnloadMinutes` (default 30, clamped 0-1440) | a loaded model held VRAM indefinitely; the supervisor that acts on it is `src/idle.js`, which is this app's own code |
+| `modules/models.js` | `MTP_RE`, `MTP_SUBDIRS`, `detectMtp()`, `_attachMtp()`, `companionKind()`; `mtpPath` detected on import/download/rescan and rebased with the folder; `mtp` flag on the Hugging Face listing | multi-token-prediction heads ship beside the model and had no support at all |
+| `modules/server.js` | `_resolveMtp()` on both launch paths, setting `profile.draftModel` | so the head reaches llama.cpp |
+| `modules/server.js` | `routerModels()` reports `workingSeconds` while a model is loading or unloading | llama.cpp exposes no load percentage at any verbosity, so elapsed time is the only honest signal |
+| `modules/commandBuilder.js` | `spec-draft-model` option def, emitted from `profile.draftModel` | the flag llama.cpp takes an MTP head through |
+| `modules/profiles.js` | `mtpPath` and `mtp` profile fields | the per-model switch has to persist |
+| `modules/api.js` | `models.detectMtp` command | mirrors `models.detectMmproj` |
 
 Nothing in `runtime/host/**` was changed for the mobile layout, the app icon or
 the chat fixes — those live in `web/`, `src/http/` and the bundle patches below.
@@ -69,6 +75,10 @@ npm run patch-ui
 | `chat-open-in-new-tab` | "Open in new tab" opens `/llama/` too | same unreachable address |
 | `app-mark` | the sidebar glyph is the llama mark, not a generic layers icon | it had nothing to do with llama.cpp |
 | `idle-unload-stamp` / `-form` / `-save` / `-field` | Server Config gains an "Unload an idle model after" control | without it the timeout is only reachable by editing config.json |
+| `download-rate-units` / `install-rate-units` | download speed is formatted with `fmtBytes(...) + '/s'` | it used `fmtRate`, the tokens/second formatter, so a 6 MB/s download read "6465214.8 tok/s" |
+| `mtp-pill` / `mtp-pill-render` | model cards carry an `mtp` tag | the library gave no sign which models ship a head |
+| `mtp-form` / `mtp-save` / `mtp-switch` | Model settings gains a Speculative decoding switch | otherwise MTP cannot be turned off for a model |
+| `loading-elapsed` | a loading model shows how long it has been loading | a bare "loading" pill on a 20GB model is minutes with no sign of life |
 
 The first two depend on the reverse proxy in `src/http/proxy.js`, and the last
 four are the front end for `src/idle.js` — both this app's own code, unaffected

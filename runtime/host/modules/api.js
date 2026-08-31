@@ -260,6 +260,14 @@
         case 'models.saveSettings': return this.models.saveSettings(String(a.id || ''), a.settings)
         case 'models.resetSettings': return this.models.resetSettings(String(a.id || ''))
         case 'models.addFlag': return this.models.addFlag(String(a.id || ''), a.flag, a.value)
+        case 'models.detectMtp': {
+          if (a.id) {
+            const m = await this.models.get(String(a.id))
+            if (!m.ok) return m
+            return this.models.detectMtp(m.model.path)
+          }
+          return this.models.detectMtp(String(a.path || ''))
+        }
         case 'models.detectMmproj': {
           if (a.id) {
             const m = await this.models.get(String(a.id))

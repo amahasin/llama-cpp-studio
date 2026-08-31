@@ -35,6 +35,14 @@ function main() {
     /present: app-mark/.test(output))
   check('Server Config can set the idle unload timeout',
     /present: idle-unload-field/.test(output))
+  check('download speed is shown in bytes, not tokens',
+    /present: download-rate-units/.test(output) && /present: install-rate-units/.test(output))
+  check('models that ship an MTP head are tagged',
+    /present: mtp-pill/.test(output) && /present: mtp-pill-render/.test(output))
+  check('and MTP can be turned off per model',
+    /present: mtp-switch/.test(output))
+  check('a loading model shows how long it has been loading',
+    /present: loading-elapsed/.test(output))
 
   return finish('bundle.test.js')
 }
