@@ -78,7 +78,7 @@ function askTray(dir, url) {
       }
       try {
         resolve(JSON.parse(stdout.trim()))
-      } catch (e) {
+      } catch (_e) {
         reject(new Error('tray status script printed no JSON: ' + JSON.stringify(stdout.slice(0, 200))))
       }
     })
