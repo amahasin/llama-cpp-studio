@@ -290,12 +290,59 @@ function commandSection() {
   check('an unknown flag is reported absent', cb.capsHave({ 'ctx-size': true }, ['nope']) === false)
 }
 
+// ---------- log ring ----------
+
+/**
+ * The router traces every request it forwards to a model instance, and this
+ * app polls two model-scoped endpoints every couple of seconds — so that trace
+ * arrived once a second, forever. It was 80% of the log and pushed real errors
+ * out of the 6000-line ring within a couple of hours. It is dropped now, and
+ * counted, because a log that quietly loses lines is worse than a noisy one.
+ */
+function logSection() {
+  const store = new LLAMA.logs.LogStore({
+    config: { get() { return { logsDirectory: '.tmp' } } },
+    exec: { async ensureDir() {} },
+    fs: {},
+    timers: { interval() { return function () {} } },
+  })
+
+  const noise = '5.52.461.749 I srv  proxy_reques: proxying request to model Qwen-UD on port 57777'
+  const real = '0.39.810.077 I srv          load: spawning server instance with name=gemma'
+
+  const NL = String.fromCharCode(10)
+  store.server('stderr', noise + NL + real + NL)
+  const after = store.lines({ limit: 50 }).lines
+  check('the router’s per-request trace is dropped',
+    after.every(function (l) { return l.text.indexOf('proxying request') === -1 }),
+    JSON.stringify(after.map(function (l) { return l.text })))
+  check('everything else the server says is kept',
+    after.length === 1 && after[0].text === real, JSON.stringify(after))
+  check('and the dropped ones are counted, not forgotten', store.suppressed === 1,
+    String(store.suppressed))
+
+  for (let i = 0; i < 249; i += 1) store.server('stderr', noise + NL)
+  const summarised = store.lines({ limit: 50 }).lines
+  check('after enough of them the log says how many it dropped',
+    summarised.some(function (l) { return /suppressed 250 routine/.test(l.text) }),
+    JSON.stringify(summarised.map(function (l) { return l.text })))
+
+  // The filter reads the server's output. This app writing about the thing is
+  // not the thing, or the summary line would delete itself.
+  store.plugin('the router logs "proxying request to model" on every poll')
+  check('an app line mentioning the trace is not itself dropped',
+    store.lines({ limit: 5 }).lines.some(function (l) {
+      return l.stream === 'plugin' && /on every poll/.test(l.text)
+    }))
+}
+
 function main() {
   console.log('llama.cpp Studio unit checks')
   ggufSection()
   securitySection()
   assetSection()
   commandSection()
+  logSection()
   return finish('units.test.js')
 }
 

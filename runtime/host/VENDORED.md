@@ -61,6 +61,7 @@ repository was unavailable.
 | `modules/api.js` | `settings.reveal` command, returning one named secret in the clear | the UI cannot show or copy a key it only ever receives redacted; deliberately narrow, and not wired to any agent tool |
 | `modules/api.js` | `_afterLibraryChange()` wraps saveSettings / resetSettings / addFlag / import / delete | a running router never re-read its preset, so changed launch flags did nothing until a restart |
 | `modules/server.js` | `refreshRouterPreset()`, and `_planRouter` accepts `forceWritePreset` so it can write without claiming the port | rewrites the preset and calls `GET /models?reload=1` |
+| `modules/logs.js` | `ROUTINE_ROUTER_NOISE`; `_append()` drops the router's per-request trace and counts it, `_push()` carries the old body, one summary line every 250 | in router mode llama.cpp logs "proxying request to model X on port N" for every forwarded request, and this app polls two model-scoped endpoints every two seconds — one line a second, 80% of the log, and the 6000-line ring lost every real error inside two hours |
 
 Nothing in `runtime/host/**` was changed for the mobile layout, the app icon or
 the chat fixes — those live in `web/`, `src/http/` and the bundle patches below.

@@ -7,6 +7,24 @@
   const util = LLAMA.util
 
   const MAX_RING_LINES = 6000
+
+  /**
+   * Router chatter this app causes and nobody needs to read.
+   *
+   * In router mode llama.cpp traces every request it forwards to a model
+   * instance ("proxying request to model X on port N") at info level. The
+   * dashboard polls /metrics and /slots for the loaded model every two seconds,
+   * so that is one line per second — 60 a minute, forever, saying nothing the
+   * UI does not already show. Left in, it was 80% of the log and evicted the
+   * whole ring, and with it every real error, inside two hours.
+   *
+   * Suppressed rather than silenced: the count is reported periodically, so
+   * they are known to exist rather than quietly missing.
+   */
+  const ROUTINE_ROUTER_NOISE = /proxy_reques\w*:\s*proxying request to model/
+
+  // How many may be dropped before the log says so.
+  const NOISE_SUMMARY_EVERY = 250
   const PERSIST_BYTES = 5 * 1024 * 1024 // rotate at 5MB
   const MAX_ROTATIONS = 2
 
@@ -26,6 +44,8 @@
     // view (see _persist).
     this._flushedSeq = 0
     this._persistedSeq = 0
+    // Router lines dropped as routine noise (see ROUTINE_ROUTER_NOISE).
+    this.suppressed = 0
   }
 
   LogStore.prototype.start = function () {
@@ -48,13 +68,29 @@
 
   LogStore.prototype._append = function (stream, text) {
     const lines = util.splitLines(text)
+    let kept = 0
     for (const raw of lines) {
       if (raw === '') continue
-      this.ring.push({ seq: this.seq, ts: util.nowIso(), stream, text: raw })
-      this.seq += 1
-      if (this.ring.length > MAX_RING_LINES) this.ring.splice(0, this.ring.length - MAX_RING_LINES)
+      if (stream !== 'plugin' && ROUTINE_ROUTER_NOISE.test(raw)) {
+        this.suppressed = (this.suppressed || 0) + 1
+        if (this.suppressed % NOISE_SUMMARY_EVERY === 0) {
+          this._push('plugin', 'suppressed ' + this.suppressed + ' routine "proxying request'
+            + ' to model" lines from the router — the dashboard polls it every couple of'
+            + ' seconds and each poll writes one')
+          kept += 1
+        }
+        continue
+      }
+      this._push(stream, raw)
+      kept += 1
     }
-    if (lines.length > 0) this._dirty = true
+    if (kept > 0) this._dirty = true
+  }
+
+  LogStore.prototype._push = function (stream, raw) {
+    this.ring.push({ seq: this.seq, ts: util.nowIso(), stream, text: raw })
+    this.seq += 1
+    if (this.ring.length > MAX_RING_LINES) this.ring.splice(0, this.ring.length - MAX_RING_LINES)
   }
 
   LogStore.prototype.plugin = function (message) {
@@ -189,5 +225,5 @@
   }
 
   LLAMA.modules.push('logs')
-  LLAMA.logs = { LogStore, MAX_RING_LINES, PERSIST_BYTES, MAX_ROTATIONS }
+  LLAMA.logs = { LogStore, MAX_RING_LINES, PERSIST_BYTES, MAX_ROTATIONS, ROUTINE_ROUTER_NOISE }
 })(globalThis.LLAMA)

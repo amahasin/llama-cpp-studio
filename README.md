@@ -464,6 +464,26 @@ Requests through this app's proxy now carry `autoload=false` on GETs that name
 a model, so inspecting one never loads it. An actual request — a chat
 completion, which is a POST — still loads on demand, unchanged.
 
+### The log is not a transcript of the polling
+
+Router mode traces every request it forwards to a model instance:
+
+```
+5.52.461.749 I srv  proxy_reques: proxying request to model Qwen3.6-35B-A3B-UD-Q4_K_M on port 57777
+```
+
+Most of those requests are this app's. The Dashboard reads `/metrics` and
+`/slots` for the loaded model every two seconds, which is one such line every
+second — sixty a minute, for as long as a model is loaded. On a real session it
+was **80% of the log**, and the live view keeps the last 6000 lines, so a genuine
+error scrolled out of reach in about an hour and a half.
+
+Those lines are dropped on the way in, from both the Logs page and
+`logs/server-*.log`. They are not silently dropped: every 250th writes one line
+saying how many went, so the filter is visible rather than a gap you have to
+guess at. Nothing else the server says is touched — the match is that trace
+alone, and only on `llama-server`'s output, never on this app's own lines.
+
 ## Idle unload
 
 A loaded model holds its weights in VRAM for as long as `llama-server` has it,
