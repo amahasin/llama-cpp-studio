@@ -151,6 +151,7 @@ standalone/
 │   │   ├── routes.js        /, /assets/*, /api/rpc, /api/health
 │   │   ├── origin.js        the remote-access allow-list (CORS)
 │   │   ├── csp.js           the Content-Security-Policy for the app shell
+│   │   ├── proxy.js         llama-server served through this origin (Chat)
 │   │   └── respond.js       sendJson/sendText/sendFile/readBody
 │   ├── repair/
 │   │   ├── config.js        the seven managed directories
@@ -162,7 +163,11 @@ standalone/
 │       └── timer.js         timeout/interval with tracked disposal
 ├── web/
 │   ├── index.html           app shell
-│   ├── app.js               styles/host/ctx shims, mounts the plugin UI
+│   ├── app.js               styles/host/ctx shims, mounts the plugin UI,
+│   │                        and the mobile navigation drawer
+│   ├── mobile.css           the phone/tablet layout (loaded after the plugin's)
+│   ├── icon.svg             the app mark — tab, home screen, manifest
+│   ├── manifest.webmanifest "Add to Home Screen" metadata
 │   ├── theme.css            the --dsw-* design tokens, light + dark
 │   └── vendor/              React 18 UMD (copied by build.js, MIT)
 ├── native/                  the desktop shell and the setup program
@@ -176,6 +181,8 @@ standalone/
 │   ├── dist/README.md       the README that ships to users
 │   └── vendor/webview2/     the four SDK files build.cmd needs
 ├── install.ps1  install.cmd per-user install, shortcuts, uninstall entry
+├── tools/
+│   └── patch-client-bundle.js  re-applies this app's fixes to the vendored UI
 ├── build.js                 rebuilds plugin bundles, vendors React
 ├── pack.js                  builds a movable, self-contained copy
 ├── repair-paths.js          re-points an older data directory at its new home
@@ -184,7 +191,9 @@ standalone/
     ├── run-all.js           every suite, with a pass/fail table at the end
     ├── helpers.js           scratch directories that actually get cleaned up
     ├── units.test.js        the pure modules: gguf, validators, scoring, argv
+    ├── bundle.test.js       the vendored UI still carries this app's fixes
     ├── secrets.test.js      secret redaction, and the save round-trip
+    ├── proxy.test.js        llama-server through this origin, session gate intact
     ├── smoke.js             boots the real app and drives it over RPC
     ├── paths.test.js        the folder stays self-contained when it moves
     ├── vision.test.js       the per-model vision toggle, end to end
@@ -356,6 +365,54 @@ Run one manager at a time against a directory: two instances would fight over
 `config.json` and the server port. The plugin refuses to start a second server
 on a port that is already in use, so the failure is loud rather than silent.
 
+## On a phone, and from another machine
+
+The UI is responsive below 860px: the sidebar becomes a drawer behind a button
+in the top-left, everything laid out in columns collapses to one, inputs are
+16px so iOS does not zoom on focus, and the safe-area insets are respected on a
+notched screen. `web/mobile.css` holds all of it and is loaded *after* the
+plugin's own stylesheet, which uses `!important` throughout. Adding it to the
+home screen gives a standalone window with the app icon
+(`web/manifest.webmanifest`).
+
+**The Chat tab is proxied, not linked.** It embeds llama.cpp's own web UI, and
+it used to point the frame straight at the address llama-server binds —
+`http://127.0.0.1:8080` by default. That address means "this device", so on a
+phone, over a tunnel, or on any published deployment the frame loaded nothing.
+It is now served through this app's own origin at `/llama/`
+(`src/http/proxy.js`), which also fixes two things that came with it:
+
+- **Copying works.** A cross-origin frame is not granted `clipboard-write`, so
+  the copy buttons in llama.cpp's UI failed silently. Same-origin, they work.
+- **An API key no longer locks you out of your own chat.** The proxy adds the
+  `Authorization` header server-side, so the embedded UI never has to hold the
+  key — and cannot be used to read it back.
+
+The proxy is behind the same session gate as everything else. An `<iframe>`
+cannot send a header, so the session token is also set as an `HttpOnly`,
+`SameSite=Strict` cookie when the page is served, and the proxy accepts that.
+Requests this app does not claim itself are forwarded to llama-server while one
+is running, which is how llama.cpp's absolute API paths (`/props`, `/v1/…`)
+keep working from inside the frame.
+
+## The app icon
+
+A llama in profile on a rounded indigo tile — llama.cpp's identity is the
+llama, and the tile is the "Studio" half: a workbench the runtime sits in. It
+is drawn in profile rather than front-on because the long neck and long muzzle
+are what keep it readable at 16px; a front-facing version reads as a cat.
+
+One geometry, three places, kept in step by hand:
+
+| Where | File |
+|---|---|
+| Browser tab, home screen, manifest | `web/icon.svg` |
+| The mark in the app's sidebar | a bundle patch — `tools/patch-client-bundle.js` |
+| Windows system tray | `New-LlamaPath` in `src/tray.ps1`, drawn with GDI+ |
+
+The tray icon used to be a `🦙` drawn as text, which rendered as an empty box
+wherever an emoji font was missing.
+
 ## Security
 
 - The HTTP server binds `127.0.0.1` by default. Binding anything else logs a
@@ -365,6 +422,10 @@ on a port that is already in use, so the failure is loud rather than silent.
   tab cannot drive the app. Setting *Allowed Remote Access Sites* to `*` turns
   the origin check off entirely and logs a warning the first time it is used;
   name the origins you actually need instead.
+- The llama-server proxy behind the Chat tab is gated the same way: an
+  `HttpOnly`, `SameSite=Strict` session cookie, because an `<iframe>` cannot
+  send a header. Without it the proxy answers 403, and with no llama-server
+  running it answers 503 rather than hanging.
 - The page is served with a Content-Security-Policy. It has to allow
   `unsafe-eval` (the UI bundle is evaluated with `new Function`, which is the
   architecture) but not `unsafe-inline`, so an injected string cannot become a
@@ -405,7 +466,7 @@ node tests\vision.test.js          # the per-model vision toggle, end to end
 node tests\router.test.js          # router mode: presets, ids, load/unload
 node tests\units.test.js           # the pure modules, no app boot
 node tests\secrets.test.js         # secret redaction and its round trip
-npm test                           # all six, with a summary table
+npm test                           # all eight, with a summary table
 ```
 
 `units.test.js` is the fast one and needs nothing installed: it feeds generated

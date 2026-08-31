@@ -1,0 +1,205 @@
+/*
+ * mobile.css — the app on a phone or a tablet.
+ *
+ * The UI is built for a desktop window: a fixed 250px sidebar beside a scrolling
+ * main column. On a 375px phone that leaves 125px for the content, which is the
+ * whole problem. Below 860px the sidebar becomes an off-canvas drawer behind a
+ * button (see the nav drawer in app.js) and the main column gets the full width.
+ *
+ * This file is injected by app.js AFTER the plugin inserts its own stylesheet,
+ * because that stylesheet leans on !important throughout; loading order alone
+ * would not win. Same reason nearly every rule here is !important too — it is
+ * not enthusiasm, it is the only way to override the base.
+ */
+
+/* ---------- shared: never scroll the page sideways ---------- */
+
+html, body {
+  max-width: 100%;
+  overflow-x: hidden;
+  overscroll-behavior-y: none;
+}
+
+/* ---------- the drawer button, injected by app.js ---------- */
+
+.llama-navbtn {
+  display: none;
+  position: fixed;
+  top: calc(10px + env(safe-area-inset-top));
+  left: calc(10px + env(safe-area-inset-left));
+  z-index: 60;
+  width: 42px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  color: var(--dsw-alias-text-primary, #1a1a1f);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.llama-navbtn svg { width: 20px; height: 20px; display: block; }
+
+.llama-scrim {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  background: rgba(0, 0, 0, 0.42);
+  border: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ---------- phones and small tablets ---------- */
+
+@media (max-width: 860px) {
+  .llama-navbtn { display: flex; }
+
+  /* 100vh does not account for the mobile URL bar; 100dvh does. */
+  .llama-app {
+    min-height: 100dvh !important;
+    flex-direction: row !important;
+  }
+
+  /* The sidebar becomes a drawer: off-canvas, over the content, not beside it. */
+  .llama-sidebar {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    z-index: 50 !important;
+    width: min(84vw, 300px) !important;
+    min-width: min(84vw, 300px) !important;
+    max-width: min(84vw, 300px) !important;
+    transform: translateX(-102%);
+    transition: transform 0.22s ease;
+    overflow-y: auto !important;
+    padding-top: calc(16px + env(safe-area-inset-top)) !important;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom)) !important;
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.22);
+  }
+
+  /* The flag is on <html>, not on .llama-app: React rebuilds that element on
+     every status poll and an attribute parked there does not survive. */
+  html[data-llama-nav="open"] .llama-sidebar { transform: translateX(0); }
+  html[data-llama-nav="open"] .llama-scrim { display: block; }
+
+  /* The drawer button floats at the top-left, exactly where the sidebar puts
+     its own brand mark; give the brand room so the two do not sit on top of
+     each other while the drawer is open. */
+  .llama-sidebar-brand { padding-left: 48px !important; min-height: 42px !important; }
+
+  /* The main column now owns the width. The top padding clears the button. */
+  .llama-main {
+    padding: calc(60px + env(safe-area-inset-top)) 14px calc(32px + env(safe-area-inset-bottom)) 14px !important;
+    width: 100% !important;
+  }
+
+  /* Anything laid out in columns goes to one. */
+  .llama-cols-2,
+  .llama-grid,
+  .llama-fields,
+  .llama-meters,
+  .llama-fb {
+    grid-template-columns: 1fr !important;
+  }
+
+  .llama-kv { grid-template-columns: minmax(96px, auto) 1fr !important; }
+
+  /* Cards and headers stop trying to sit side by side. */
+  .llama-head {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+
+  .llama-card { padding: 14px !important; border-radius: 12px !important; }
+
+  /* Wide content scrolls inside itself rather than widening the page. */
+  .llama-table-wrap,
+  .llama-logs,
+  .llama-code,
+  .llama-flags {
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  table { display: block; overflow-x: auto; max-width: 100%; }
+
+  /* 16px is the threshold below which iOS Safari zooms the page on focus. */
+  .llama-input,
+  .llama-select,
+  input, select, textarea {
+    font-size: 16px !important;
+    max-width: 100% !important;
+  }
+
+  /* Comfortable touch targets — the desktop sizes are ~26px. */
+  .llama-btn,
+  .llama-sidebar-item,
+  .llama-tab,
+  .llama-chat-icon-btn {
+    min-height: 40px !important;
+  }
+
+  .llama-btn { padding-left: 14px !important; padding-right: 14px !important; }
+
+  /* Rows of buttons wrap instead of overflowing. */
+  .llama-actions,
+  .llama-model-actions,
+  .llama-card-head,
+  .llama-cfg-badges {
+    flex-wrap: wrap !important;
+  }
+}
+
+/* ---------- the chat frame ---------- */
+
+@media (max-width: 860px) {
+  /* The chat page is full-bleed: no top padding for the drawer button, because
+     the button floats over it, and dvh so the frame is not cut off by the URL
+     bar on iOS. */
+  .llama-main[data-page="chat"] {
+    padding: 0 !important;
+    height: 100dvh !important;
+  }
+
+  .llama-chat-view { height: 100dvh !important; }
+
+  .llama-chat-iframe {
+    height: 100% !important;
+    width: 100% !important;
+    border: 0 !important;
+  }
+
+  /* Move the floating controls clear of the drawer button, and keep them out
+     of the way of the chat composer at the bottom. */
+  .llama-chat-floating-bar {
+    top: calc(10px + env(safe-area-inset-top)) !important;
+    right: calc(10px + env(safe-area-inset-right)) !important;
+    left: auto !important;
+    bottom: auto !important;
+    opacity: 0.92 !important;
+  }
+}
+
+/* ---------- very narrow phones ---------- */
+
+@media (max-width: 400px) {
+  .llama-main { padding-left: 10px !important; padding-right: 10px !important; }
+  .llama-card { padding: 12px !important; }
+  .llama-sidebar { width: 88vw !important; min-width: 88vw !important; max-width: 88vw !important; }
+}
+
+/* ---------- pointer-coarse tweaks, any width ---------- */
+
+@media (pointer: coarse) {
+  /* Hover-only affordances never un-hover on touch; keep them visible. */
+  .llama-chat-floating-bar { opacity: 0.92 !important; }
+}

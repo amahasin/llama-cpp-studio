@@ -49,12 +49,40 @@ repository was unavailable.
 | `modules/config.js` | new `llamaCpp.githubToken`, normalized like the other optional strings | 60 unauthenticated GitHub requests/hour is a recurring failure |
 | `modules/github.js` | sends `Authorization` when a token is set; remediation text distinguishes the two cases | as above |
 
-`tests/units.test.js` and `tests/secrets.test.js` cover most of the above, so a
-re-pack that silently reverts them should fail the suite rather than pass
-quietly. That is the safety net; it is not a substitute for upstreaming.
+Nothing in `runtime/host/**` was changed for the mobile layout, the app icon or
+the chat fixes — those live in `web/`, `src/http/` and the bundle patches below.
+
+### The UI bundle
+
+`runtime/client.bundle.js` is a build artifact, so it is not hand-edited. The
+changes below live as data in `tools/patch-client-bundle.js` and are re-applied
+with:
+
+```
+npm run patch-ui
+```
+
+| Patch | Change | Why |
+|---|---|---|
+| `chat-iframe-same-origin` | the chat `<iframe>` loads `/llama/` instead of llama-server's own address, and carries `allow="clipboard-write; clipboard-read"` | `127.0.0.1:8080` in a phone's browser is the *phone*, so the chat was blank on every remote device; and a cross-origin frame gets no clipboard, so llama.cpp's copy buttons silently did nothing |
+| `chat-open-in-new-tab` | "Open in new tab" opens `/llama/` too | same unreachable address |
+| `app-mark` | the sidebar glyph is the llama mark, not a generic layers icon | it had nothing to do with llama.cpp |
+
+The first two depend on the reverse proxy in `src/http/proxy.js`, which is this
+app's own code and is not affected by a re-pack.
+
+### The safety net
+
+`tests/units.test.js`, `tests/secrets.test.js` and `tests/proxy.test.js` cover
+the host-module and proxy changes; `tests/bundle.test.js` runs
+`tools/patch-client-bundle.js --check` and fails when the shipped bundle has
+lost a patch. So a re-pack that silently reverts any of this fails the suite
+rather than passing quietly. That is the safety net; it is not a substitute for
+upstreaming.
 
 ## Updating this copy
 
 1. Record the upstream URL and revision above.
-2. Re-apply (or upstream) every row in the table.
-3. `npm test` — the two suites named above are the ones that will notice.
+2. Re-apply (or upstream) every row in the host-module table.
+3. `npm run patch-ui` for the UI bundle.
+4. `npm test` — `bundle.test.js` is the one that notices a missing UI patch.

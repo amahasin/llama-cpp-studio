@@ -14,7 +14,8 @@
     "status": "node src/main.js --status",
     "test": "node tests/run-all.js",
     "test:units": "node tests/units.test.js",
-    "lint": "npx --yes eslint ."
+    "lint": "npx --yes eslint .",
+    "patch-ui": "node tools/patch-client-bundle.js"
   },
   "engines": {
     "node": ">=18"

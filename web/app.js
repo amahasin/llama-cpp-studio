@@ -109,6 +109,77 @@
     },
   }
 
+  // ---------- mobile navigation drawer ----------
+  //
+  // Below 860px the sidebar is taken out of the flow and slid off-canvas (see
+  // mobile.css). Something has to bring it back, and the sidebar itself is
+  // rendered by the plugin bundle — so the button and the scrim are added
+  // here, around it, rather than inside it.
+
+  const MENU_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"'
+    + ' stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/>'
+    + '<line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>'
+
+  function installNavDrawer() {
+    if (document.querySelector('.llama-navbtn')) return true
+    if (!document.querySelector('.llama-app')) return false
+
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'llama-navbtn'
+    button.setAttribute('aria-label', 'Menu')
+    button.setAttribute('aria-expanded', 'false')
+    button.innerHTML = MENU_SVG
+
+    const scrim = document.createElement('button')
+    scrim.type = 'button'
+    scrim.className = 'llama-scrim'
+    scrim.setAttribute('aria-label', 'Close menu')
+    scrim.tabIndex = -1
+
+    // The open/closed flag lives on <html>, and the two controls hang off
+    // <body> — never inside .llama-app. React owns that subtree and rebuilds it
+    // on every status poll, which quietly dropped both the attribute and the
+    // elements a few seconds after they were added.
+    function setOpen(open) {
+      document.documentElement.setAttribute('data-llama-nav', open ? 'open' : 'closed')
+      button.setAttribute('aria-expanded', open ? 'true' : 'false')
+    }
+    function isOpen() {
+      return document.documentElement.getAttribute('data-llama-nav') === 'open'
+    }
+    setOpen(false)
+
+    button.addEventListener('click', function () { setOpen(!isOpen()) })
+    scrim.addEventListener('click', function () { setOpen(false) })
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') setOpen(false)
+    })
+    // Choosing a page is the end of using the menu. Delegated from the
+    // document, so it keeps working across re-renders of the sidebar.
+    document.addEventListener('click', function (e) {
+      if (e.target.closest && e.target.closest('.llama-sidebar-item')) setOpen(false)
+    })
+    // Rotating to landscape can cross the breakpoint with the drawer open,
+    // which would otherwise leave a scrim over a sidebar that is back in flow.
+    window.matchMedia('(max-width: 860px)').addEventListener('change', function (m) {
+      if (!m.matches) setOpen(false)
+    })
+
+    document.body.appendChild(scrim)
+    document.body.appendChild(button)
+    return true
+  }
+
+  // .llama-app appears only once React has rendered.
+  function watchForApp() {
+    if (installNavDrawer()) return
+    const observer = new MutationObserver(function () {
+      if (installNavDrawer()) observer.disconnect()
+    })
+    observer.observe(rootEl, { childList: true, subtree: true })
+  }
+
   function fail(message, detail) {
     rootEl.innerHTML = ''
     const box = document.createElement('div')
@@ -143,8 +214,16 @@
       fail('The UI bundle did not register a settings section.')
       return
     }
+    // After the plugin's own stylesheet, so these overrides win: the base CSS
+    // uses !important throughout and load order alone would not settle it.
+    const mobile = document.createElement('link')
+    mobile.rel = 'stylesheet'
+    mobile.href = '/assets/mobile.css'
+    document.head.appendChild(mobile)
+
     const root = window.ReactDOM.createRoot(rootEl)
     root.render(window.React.createElement(Section, {}))
+    watchForApp()
   }
 
   boot()

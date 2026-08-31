@@ -15,6 +15,12 @@ const MIME = {
   '.svg': 'image/svg+xml',
   '.json': 'application/json; charset=utf-8',
   '.ico': 'image/x-icon',
+  // Served with the right type or the browser ignores it, and "Add to Home
+  // Screen" falls back to a screenshot instead of the app icon.
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.woff2': 'font/woff2',
 }
 
 const NO_STORE = 'no-store'

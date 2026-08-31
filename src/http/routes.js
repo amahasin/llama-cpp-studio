@@ -11,9 +11,41 @@ const path = require('node:path')
 const { WEB_DIR, clientBundlePath } = require('../lib/layout.js')
 const { MIME, sendJson, sendText, sendFile, notFound, readBody } = require('./respond.js')
 const { contentSecurityPolicy } = require('./csp.js')
+const { createProxy } = require('./proxy.js')
 
 const BODY_LIMIT = 4 * 1024 * 1024
 const CLIENT_BUNDLE = 'client.bundle.js'
+
+// The session token, also delivered as a cookie. The RPC route reads it from a
+// header, which an <iframe> cannot set — so the proxied llama-server keeps the
+// same gate through a cookie the browser attaches on its own. HttpOnly: no
+// script needs to read it, and the page already has the token it was served.
+const SESSION_COOKIE = 'llama_session'
+
+function cookieValue(req, name) {
+  const header = req.headers.cookie
+  if (typeof header !== 'string') return undefined
+  for (const part of header.split(';')) {
+    const eq = part.indexOf('=')
+    if (eq === -1) continue
+    if (part.slice(0, eq).trim() !== name) continue
+    return decodeURIComponent(part.slice(eq + 1).trim())
+  }
+  return undefined
+}
+
+function sessionCookie(token, req) {
+  const attrs = [
+    SESSION_COOKIE + '=' + encodeURIComponent(token),
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Strict',
+  ]
+  // Only over TLS — set unconditionally it would be dropped on the plain-http
+  // loopback the app normally runs on.
+  if (req.headers['x-forwarded-proto'] === 'https') attrs.push('Secure')
+  return attrs.join('; ')
+}
 
 const PREFLIGHT_HEADERS = {
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -38,6 +70,7 @@ const CHANNELS = {
  */
 function createRouter(deps) {
   const { manager, token, indexTemplate, originPolicy } = deps
+  const proxy = createProxy({ manager, log: deps.log })
   const version = deps.version || 'dev'
   const log = deps.log || function () {}
 
@@ -48,6 +81,7 @@ function createRouter(deps) {
     res.setHeader('Content-Security-Policy', contentSecurityPolicy(manager))
     res.setHeader('X-Content-Type-Options', 'nosniff')
     res.setHeader('Referrer-Policy', 'no-referrer')
+    res.setHeader('Set-Cookie', sessionCookie(token, req))
     sendText(res, 200, page, MIME['.html'])
   }
 
@@ -125,6 +159,15 @@ function createRouter(deps) {
     })
   }
 
+  /**
+   * The proxied llama-server is behind the same session gate as the RPC route.
+   * The iframe cannot send a header, so the cookie counts here too.
+   */
+  function authorized(req) {
+    if (req.headers['x-llama-token'] === token) return true
+    return cookieValue(req, SESSION_COOKIE) === token
+  }
+
   return async function handle(req, res) {
     const url = new URL(req.url, 'http://' + deps.host)
     const origin = req.headers.origin
@@ -144,11 +187,23 @@ function createRouter(deps) {
 
     try {
       const route = match(req.method, url.pathname)
-      if (route === undefined) {
-        notFound(res)
+      if (route !== undefined) {
+        await route.handler(req, res, url, originAllowed)
         return
       }
-      await route.handler(req, res, url, originAllowed)
+      // Not ours: llama-server's, if one is running and the caller is allowed.
+      if (proxy.claims(url.pathname)) {
+        if (!authorized(req) || !originAllowed) {
+          sendJson(res, 403, {
+            ok: false, code: 'FORBIDDEN',
+            message: 'This llama-server is reached through the app session.',
+          })
+          return
+        }
+        proxy.handle(req, res, url)
+        return
+      }
+      notFound(res)
     } catch (err) {
       log('request failed: ' + String(err && err.message))
       sendJson(res, 500, { ok: false, code: 'INTERNAL', message: String(err && err.message) })

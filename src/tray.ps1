@@ -102,21 +102,77 @@ if (-not $NoBrowser) {
 }
 
 # 2. Build the System Tray Icon
+#
+# The mark is a llama in profile — the same geometry as web/icon.svg and the
+# sidebar mark inside the app, drawn here with GDI+ because the tray wants an
+# Icon, not an SVG. It replaces a "🦙" drawn as text, which depended on an
+# emoji font being present and rendered as a hollow box where it was not.
+#
+# Coordinates are the SVG path's, in its 64x64 space, scaled at the end.
+
+function New-LlamaPath {
+    $p = New-Object System.Drawing.Drawing2D.GraphicsPath
+    # Back of the neck, rising into the head.
+    $p.AddBezier(23, 57, 23, 45, 25, 35, 30, 29)
+    $p.AddBezier(30, 29, 32, 25, 32.5, 22, 33, 19)
+    # Rear ear.
+    $p.AddLine(33, 19, 31.2, 10)
+    $p.AddBezier(31.2, 10, 30.6, 5, 35.2, 4.4, 36.2, 9.4)
+    $p.AddLine(36.2, 9.4, 37.5, 18)
+    # Between the ears, then the front ear.
+    $p.AddLine(37.5, 18, 42, 17)
+    $p.AddLine(42, 17, 43, 7.6)
+    $p.AddBezier(43, 7.6, 43.6, 2.6, 48.2, 3.2, 48.2, 8.2)
+    $p.AddLine(48.2, 8.2, 48, 19.5)
+    # Head into the muzzle, and back along the jaw.
+    $p.AddBezier(48, 19.5, 52.5, 21.5, 57, 24.5, 58, 28)
+    $p.AddBezier(58, 28, 58.8, 30.5, 57, 33, 54, 33)
+    $p.AddLine(54, 33, 45, 33.5)
+    $p.AddBezier(45, 33.5, 41, 34, 38.5, 37, 38, 42)
+    # Front of the neck, back down to the start.
+    $p.AddLine(38, 42, 37.5, 57)
+    $p.CloseFigure()
+    return $p
+}
+
 function Create-AppIcon {
-    $bmp = New-Object System.Drawing.Bitmap(32, 32)
+    # 32px is what the notification area asks for at 100% scale; GetHicon
+    # downsamples cleanly for smaller, and this stays crisp on a 150% display.
+    $size = 32
+    $bmp = New-Object System.Drawing.Bitmap($size, $size)
     $g = [System.Drawing.Graphics]::FromImage($bmp)
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-    $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(99, 102, 241)) # Indigo
-    $g.FillEllipse($brush, 2, 2, 28, 28)
-    $textBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)
-    $font = New-Object System.Drawing.Font('Segoe UI', 13, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
-    $sf = New-Object System.Drawing.StringFormat
-    $sf.Alignment = [System.Drawing.StringAlignment]::Center
-    $sf.LineAlignment = [System.Drawing.StringAlignment]::Center
-    $rect = New-Object System.Drawing.RectangleF(0, 1, 32, 30)
-    $g.DrawString("🦙", $font, $textBrush, $rect, $sf)
+    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+
+    # The rounded indigo tile, matching web/icon.svg.
+    $indigo = [System.Drawing.Color]::FromArgb(255, 99, 102, 241)
+    $tile = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $r = [int]($size * 0.235)   # the SVG's rx=15 of 64
+    $d = $r * 2
+    $tile.AddArc(0, 0, $d, $d, 180, 90)
+    $tile.AddArc($size - $d, 0, $d, $d, 270, 90)
+    $tile.AddArc($size - $d, $size - $d, $d, $d, 0, 90)
+    $tile.AddArc(0, $size - $d, $d, $d, 90, 90)
+    $tile.CloseFigure()
+    $tileBrush = New-Object System.Drawing.SolidBrush($indigo)
+    $g.FillPath($tileBrush, $tile)
+
+    # The llama, fitted into the tile the same way the SVG does it.
+    $llama = New-LlamaPath
+    $m = New-Object System.Drawing.Drawing2D.Matrix
+    $m.Scale($size / 64.0, $size / 64.0)
+    $m.Translate(-2.1, 5.2)
+    $m.Scale(0.855, 0.855)
+    $llama.Transform($m)
+    $white = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)
+    $g.FillPath($white, $llama)
+
     $hIcon = $bmp.GetHicon()
-    return [System.Drawing.Icon]::FromHandle($hIcon)
+    $icon = [System.Drawing.Icon]::FromHandle($hIcon)
+
+    $tileBrush.Dispose(); $white.Dispose(); $tile.Dispose(); $llama.Dispose()
+    $m.Dispose(); $g.Dispose()
+    return $icon
 }
 
 $icon = Create-AppIcon

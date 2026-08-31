@@ -12,7 +12,9 @@ const { spawnSync } = require('node:child_process')
 // failure far more often than the other way round.
 const SUITES = [
   ['units.test.js', 'the pure modules: gguf, validators, asset scoring, argv'],
+  ['bundle.test.js', 'the vendored UI still carries this app’s fixes'],
   ['secrets.test.js', 'API key and GitHub token redaction, and the save round-trip'],
+  ['proxy.test.js', 'llama-server reached through this origin, with the session gate'],
   ['smoke.js', 'boots the real app and drives it over RPC'],
   ['paths.test.js', 'the folder stays self-contained when it moves'],
   ['vision.test.js', 'the per-model vision toggle, end to end'],

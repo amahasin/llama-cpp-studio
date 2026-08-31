@@ -1,0 +1,22 @@
+<!--
+  llama.cpp Studio — the app mark.
+
+  A llama in profile, because llama.cpp's identity is the llama and this app is
+  a manager for llama.cpp; the rounded tile is the "Studio" half — a workbench
+  the runtime sits in. Drawn in profile with a long neck and a long muzzle
+  rather than front-on: a front-facing version with no neck reads as a cat at
+  any size, and the neck is what makes the silhouette unmistakable at 16px.
+
+  One geometry, used everywhere: this file (browser tab, home screen, manifest),
+  the sidebar mark inside the app, and the tray icon drawn with GDI+ in
+  src/tray.ps1. Change the path here and change it there.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="llama.cpp Studio">
+  <rect width="64" height="64" rx="15" fill="#6366f1"/>
+  <g fill="#ffffff" transform="translate(-2.1 5.2) scale(0.855)">
+    <path d="M23 57 C23 45 25 35 30 29 C32 25 32.5 22 33 19
+      L31.2 10 C30.6 5 35.2 4.4 36.2 9.4 L37.5 18 L42 17 L43 7.6
+      C43.6 2.6 48.2 3.2 48.2 8.2 L48 19.5 C52.5 21.5 57 24.5 58 28
+      C58.8 30.5 57 33 54 33 L45 33.5 C41 34 38.5 37 38 42 L37.5 57 Z"/>
+  </g>
+</svg>
