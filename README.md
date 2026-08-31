@@ -194,6 +194,7 @@ standalone/
     ├── bundle.test.js       the vendored UI still carries this app's fixes
     ├── secrets.test.js      secret redaction, and the save round-trip
     ├── proxy.test.js        llama-server through this origin, session gate intact
+    ├── tray.test.js         the tray reports the real state, not a fixed one
     ├── smoke.js             boots the real app and drives it over RPC
     ├── paths.test.js        the folder stays self-contained when it moves
     ├── vision.test.js       the per-model vision toggle, end to end
@@ -395,6 +396,24 @@ Requests this app does not claim itself are forwarded to llama-server while one
 is running, which is how llama.cpp's absolute API paths (`/props`, `/v1/…`)
 keep working from inside the frame.
 
+## System tray
+
+`start.cmd` launches the app behind a tray icon (`src/tray.ps1`);
+`start.cmd --console` runs it in the foreground instead. The tray polls the
+app every four seconds and shows what is actually happening — it used to
+assert "Router Running" the moment it started and never look again, which is
+what it said whether or not a router existed.
+
+| Dot | Meaning |
+|---|---|
+| green | the server (or router) is up, with its port |
+| amber | starting or stopping |
+| grey | the app is up, the server is not |
+| hollow | the app itself is not answering |
+
+It reads the session token out of the page the app serves, the same way the
+browser does, and re-reads it if the app restarts and mints a new one.
+
 ## The app icon
 
 A llama in profile on a rounded indigo tile — llama.cpp's identity is the
@@ -466,7 +485,7 @@ node tests\vision.test.js          # the per-model vision toggle, end to end
 node tests\router.test.js          # router mode: presets, ids, load/unload
 node tests\units.test.js           # the pure modules, no app boot
 node tests\secrets.test.js         # secret redaction and its round trip
-npm test                           # all eight, with a summary table
+npm test                           # all nine, with a summary table
 ```
 
 `units.test.js` is the fast one and needs nothing installed: it feeds generated

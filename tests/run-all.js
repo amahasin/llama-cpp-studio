@@ -15,6 +15,7 @@ const SUITES = [
   ['bundle.test.js', 'the vendored UI still carries this app’s fixes'],
   ['secrets.test.js', 'API key and GitHub token redaction, and the save round-trip'],
   ['proxy.test.js', 'llama-server reached through this origin, with the session gate'],
+  ['tray.test.js', 'the system tray reports the real server state, not a fixed one'],
   ['smoke.js', 'boots the real app and drives it over RPC'],
   ['paths.test.js', 'the folder stays self-contained when it moves'],
   ['vision.test.js', 'the per-model vision toggle, end to end'],

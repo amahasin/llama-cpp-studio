@@ -135,7 +135,10 @@ function New-LlamaPath {
     return $p
 }
 
-function Create-AppIcon {
+# $State drives a small status dot in the corner: the tooltip only appears on
+# hover, so the icon itself should say whether anything is actually serving.
+#   running  green    starting amber    stopped grey    offline hollow
+function Create-AppIcon([string]$State = 'stopped') {
     # 32px is what the notification area asks for at 100% scale; GetHicon
     # downsamples cleanly for smaller, and this stays crisp on a 150% display.
     $size = 32
@@ -167,25 +170,121 @@ function Create-AppIcon {
     $white = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)
     $g.FillPath($white, $llama)
 
+    # The status dot, bottom-right, ringed so it reads against the tile.
+    $dotColour = switch ($State) {
+        'running'  { [System.Drawing.Color]::FromArgb(255, 34, 197, 94) }   # green
+        'starting' { [System.Drawing.Color]::FromArgb(255, 245, 158, 11) }  # amber
+        'offline'  { [System.Drawing.Color]::FromArgb(255, 120, 120, 130) } # grey
+        default    { [System.Drawing.Color]::FromArgb(255, 160, 160, 172) } # stopped
+    }
+    $dot = [int]($size * 0.375)
+    $dotX = $size - $dot - 1
+    $dotY = $size - $dot - 1
+    $ringBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)
+    $g.FillEllipse($ringBrush, $dotX - 1, $dotY - 1, $dot + 2, $dot + 2)
+    $dotBrush = New-Object System.Drawing.SolidBrush($dotColour)
+    if ($State -eq 'offline') {
+        # Hollow: nothing is answering, which is not the same as "stopped".
+        $pen = New-Object System.Drawing.Pen($dotColour, 2)
+        $g.DrawEllipse($pen, $dotX + 1, $dotY + 1, $dot - 2, $dot - 2)
+        $pen.Dispose()
+    } else {
+        $g.FillEllipse($dotBrush, $dotX, $dotY, $dot, $dot)
+    }
+
     $hIcon = $bmp.GetHicon()
     $icon = [System.Drawing.Icon]::FromHandle($hIcon)
 
     $tileBrush.Dispose(); $white.Dispose(); $tile.Dispose(); $llama.Dispose()
-    $m.Dispose(); $g.Dispose()
+    $ringBrush.Dispose(); $dotBrush.Dispose(); $m.Dispose(); $g.Dispose()
     return $icon
 }
 
-$icon = Create-AppIcon
+# One icon per state, built once. GetHicon() hands back an unmanaged handle
+# every time it is called, so building these on each poll would leak one every
+# few seconds for as long as the tray is up.
+$Icons = @{
+    running  = Create-AppIcon 'running'
+    starting = Create-AppIcon 'starting'
+    stopped  = Create-AppIcon 'stopped'
+    offline  = Create-AppIcon 'offline'
+}
+
+# 3. Ask the app what is actually happening
+#
+# The tray used to assert "Router Running" in its tooltip and its menu from the
+# moment it started, and never revisit it: the only update looked at whether
+# the *Node backend* had exited, which is a different question, and did not run
+# at all when the tray had attached to an instance somebody else started. So it
+# reported a running router whether or not one was.
+#
+# The token is read out of the page the app serves, which is where the browser
+# gets it too — anything that can reach the port can read it, and that is by
+# design; the token exists to stop other *websites* driving the app, not other
+# local processes.
+
+$script:Token = $null
+
+function Get-SessionToken {
+    if ($script:Token) { return $script:Token }
+    try {
+        $html = (Invoke-WebRequest -Uri $WebUrl -UseBasicParsing -TimeoutSec 2).Content
+        if ($html -match 'data-llama-token="([a-f0-9]+)"') { $script:Token = $Matches[1] }
+    } catch {
+        $script:Token = $null
+    }
+    return $script:Token
+}
+
+# The llama-server lifecycle state, or $null when the app itself is unreachable.
+function Get-ServerState {
+    $t = Get-SessionToken
+    if (-not $t) { return $null }
+    try {
+        $body = '{"channel":"llama.call","payload":{"method":"server.status","args":{}}}'
+        $res = Invoke-RestMethod -Uri ($WebUrl + 'api/rpc') -Method Post -TimeoutSec 2 `
+            -ContentType 'application/json' -Headers @{ 'X-Llama-Token' = $t } -Body $body
+        if ($res.ok -ne $true) { return $null }
+        return $res.server
+    } catch {
+        # A restarted app mints a new token; drop ours and pick it up next tick.
+        $script:Token = $null
+        return $null
+    }
+}
+
+# Returns @{ key; label } — `key` selects the icon, `label` is the tooltip.
+function Get-StatusText([object]$server) {
+    if ($null -eq $server) {
+        return @{ key = 'offline'; label = 'llama.cpp Studio - not running' }
+    }
+    $state = [string]$server.state
+    $mode = [string]$server.mode
+    $what = if ($mode -eq 'router') { 'Router' } else { 'Server' }
+
+    switch ($state) {
+        'RUNNING' {
+            $where = if ($server.port) { " on port $($server.port)" } else { '' }
+            return @{ key = 'running'; label = "llama.cpp Studio - $what running$where" }
+        }
+        'STARTING' { return @{ key = 'starting'; label = "llama.cpp Studio - $what starting..." } }
+        'STOPPING' { return @{ key = 'starting'; label = "llama.cpp Studio - $what stopping..." } }
+        'FAILED'   { return @{ key = 'stopped';  label = "llama.cpp Studio - $what failed to start" } }
+        default    { return @{ key = 'stopped';  label = "llama.cpp Studio - $what stopped" } }
+    }
+}
 
 $notifyIcon = New-Object System.Windows.Forms.NotifyIcon
-$notifyIcon.Icon = $icon
-$notifyIcon.Text = "llama.cpp Studio (Router Running)"
+$notifyIcon.Icon = $Icons.offline
+# NotifyIcon.Text throws above 63 characters, so everything assigned to it goes
+# through here.
+$notifyIcon.Text = 'llama.cpp Studio - checking...'
 $notifyIcon.Visible = $true
 
 # Context Menu
 $contextMenu = New-Object System.Windows.Forms.ContextMenuStrip
 
-$menuTitle = New-Object System.Windows.Forms.ToolStripMenuItem("llama.cpp Studio (Router Active)")
+$menuTitle = New-Object System.Windows.Forms.ToolStripMenuItem('llama.cpp Studio - checking...')
 $menuTitle.Enabled = $false
 $contextMenu.Items.Add($menuTitle) | Out-Null
 $contextMenu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
@@ -251,15 +350,36 @@ $notifyIcon.add_DoubleClick({
     Start-Process $WebUrl
 })
 
-# Background monitor timer: verify Node is still running
-$timer = New-Object System.Windows.Forms.Timer
-$timer.Interval = 3000
-$timer.add_Tick({
-    if ($NodeProcess -and $NodeProcess.HasExited) {
-        $notifyIcon.Text = "llama.cpp Studio (Stopped)"
+# Reflect the real state, on a timer.
+#
+# This runs on the UI thread, so the calls inside Get-ServerState are given
+# short timeouts: a tray icon that stops responding to a right-click while it
+# waits on a socket is worse than one that is a few seconds out of date. When
+# the backend we started has exited there is nothing to ask, and we say so
+# without going near the network.
+function Update-TrayStatus {
+    $server = $null
+    if (-not ($NodeProcess -and $NodeProcess.HasExited)) {
+        $server = Get-ServerState
     }
-})
+    $status = Get-StatusText $server
+
+    $label = $status.label
+    if ($label.Length -gt 63) { $label = $label.Substring(0, 60) + '...' }
+    if ($notifyIcon.Text -ne $label) { $notifyIcon.Text = $label }
+    if ($menuTitle.Text -ne $status.label) { $menuTitle.Text = $status.label }
+
+    $next = $Icons[$status.key]
+    if ($next -and $notifyIcon.Icon -ne $next) { $notifyIcon.Icon = $next }
+}
+
+$timer = New-Object System.Windows.Forms.Timer
+$timer.Interval = 4000
+$timer.add_Tick({ Update-TrayStatus })
 $timer.Start()
+
+# Say something true before the first tick.
+Update-TrayStatus
 
 # Run the Windows Forms message pump
 [System.Windows.Forms.Application]::Run()
