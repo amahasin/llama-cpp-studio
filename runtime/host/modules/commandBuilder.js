@@ -102,6 +102,11 @@
     // model for speculative decoding. The flag was renamed along the way,
     // so the older spellings are accepted as capabilities too.
     { name: 'spec-draft-model', form: 'value', caps: ['spec-draft-model', 'model-draft', 'md'] },
+    // Speculative decoding is off unless this says otherwise — --spec-type
+    // defaults to "none", so a draft model on its own does nothing. It is also
+    // how a model whose MTP head is built in (Qwen3.6 and friends carry nextn
+    // layers inside the file) turns the head on, with no separate file at all.
+    { name: 'spec-type', form: 'value', caps: ['spec-type'] },
     { name: 'slots', form: 'flag', caps: ['slots'] },
     { name: 'no-slots', form: 'flag', caps: ['no-slots'] },
     { name: 'path', form: 'value', caps: ['path'] },
@@ -254,8 +259,10 @@
     push('lora', profile.lora)
     push('lora-scaled', [profile.loraScaled, profile.loraScale])
 
-    // The MTP head, when one was found and not turned off for this model.
+    // The MTP head, when one was found and not turned off for this model:
+    // a separate file, a head built into the model, or both.
     push('spec-draft-model', profile.draftModel)
+    push('spec-type', profile.specType)
 
     // ---- server scoped ----
     // A command line is readable by any local process for as long as the server

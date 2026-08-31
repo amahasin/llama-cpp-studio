@@ -353,6 +353,16 @@ does. It is a multi-token-prediction head, and llama.cpp takes one as the
 **draft model for speculative decoding**, which is what makes generation
 faster.
 
+Other models — Qwen3.6 among them — carry the head **inside the model file**
+instead, as `nextn` layers (`<arch>.nextn_predict_layers` plus `blk.N.nextn.*`
+tensors). There is no second file to find, and the model is a normal GGUF that
+happens to have an extra block.
+
+Both are detected, and both are turned on with `--spec-type draft-mtp`, which
+llama.cpp needs either way: it defaults to `none`, so a draft model on its own
+would sit unused. A separate head is additionally passed with
+`--spec-draft-model`.
+
 The app treats these exactly like vision projectors:
 
 - **Detected** when a model is imported, downloaded or rescanned — beside the
@@ -371,6 +381,10 @@ The app treats these exactly like vision projectors:
 
 Downloading the pair in either order works: a head that arrives after its model
 is attached to it, and a model that arrives after its head picks it up.
+
+**Models registered before this existed need one Rescan** to pick up a built-in
+head — the flag is read out of the GGUF, and their stored metadata predates it.
+Newly imported and downloaded models are detected automatically.
 
 ## Idle unload
 

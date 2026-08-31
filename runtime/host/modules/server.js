@@ -131,8 +131,20 @@
   ServerManager.prototype._resolveMtp = async function (profile, model) {
     if (profile.mtp === false) {
       delete profile.draftModel
+      delete profile.specType
       return profile
     }
+
+    // Two ways a model can support multi-token prediction, and they are not
+    // alternatives to each other — a model may ship neither, either or both.
+    //
+    //   built in   the head is inside the model file as nextn layers, which is
+    //              how Qwen3.6 ships it. There is no second file to find.
+    //   separate   an mtp-*.gguf beside the model, which is how gemma-4 ships
+    //              it. That one is handed over as the draft model.
+    //
+    // Either way llama.cpp has to be told to use it: --spec-type defaults to
+    // "none", so a draft model on its own would sit there unused.
     let head = profile.mtpPath
     if (head === undefined || head === '') {
       head = model.mtpPath
@@ -146,6 +158,10 @@
       if (stat.exists === true && stat.isDir !== true) profile.draftModel = head
       else delete profile.draftModel
     }
+
+    const builtIn = (model.metadata || {}).hasMtp === true
+    if (builtIn || profile.draftModel !== undefined) profile.specType = 'draft-mtp'
+    else delete profile.specType
     return profile
   }
 

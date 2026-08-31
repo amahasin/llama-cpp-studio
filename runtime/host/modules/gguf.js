@@ -151,6 +151,11 @@
     // Attention shape drives the KV-cache size estimate (GQA aware).
     '.attention.head_count', '.attention.head_count_kv',
     '.attention.key_length', '.attention.value_length',
+    // Multi-token prediction built into the model rather than shipped as a
+    // separate head: Qwen3.6 and friends carry "<arch>.nextn_predict_layers"
+    // and blk.N.nextn.* tensors. Anything above zero means the model can draft
+    // its own tokens, which llama.cpp enables with --spec-type draft-mtp.
+    '.nextn_predict_layers',
   ]
 
   function isInterestingKey(key) {
@@ -201,6 +206,7 @@
       // layer count and catch the architecture prefix from the first tensor.
       let blkWeights = 0
       let weightTensors = 0
+      let nextnTensors = 0
       let firstTensor = ''
       let tensorsScanned = 0
       try {
@@ -209,6 +215,7 @@
           if (i === 0) firstTensor = name
           if (/\.weight$/.test(name)) weightTensors += 1
           if (/^blk\.\d+\..*\.weight$/.test(name)) blkWeights += 1
+          if (/\.nextn\./.test(name)) nextnTensors += 1
           const nDims = r.u32()
           const dimBytes = nDims * 8
           r.need(dimBytes)
@@ -224,7 +231,7 @@
       return {
         ok: true, magic: 'GGUF', version, tensorCount, kvCount, kv,
         layerCount: blkWeights > 0 ? blkWeights : (weightTensors > 0 ? weightTensors : undefined),
-        firstTensor, tensorsScanned, truncated: false, bytesRead: r.pos,
+        firstTensor, tensorsScanned, nextnTensors, truncated: false, bytesRead: r.pos,
       }
     } catch (err) {
       if (err && err.message === 'truncated') {
@@ -256,6 +263,10 @@
       contextLength: firstDefined(pickEnding(kv, '.context_length'), fb.contextLength),
       embeddingLength: firstDefined(pickEnding(kv, '.embedding_length'), fb.embeddingLength),
       blockCount: firstDefined(pickEnding(kv, '.block_count'), undefined),
+      // Multi-token prediction carried inside the model file. The key is the
+      // authority; the nextn tensor count is the fallback for a model that has
+      // the layers without advertising them.
+      nextnPredictLayers: firstDefined(pickEnding(kv, '.nextn_predict_layers'), undefined),
       headCount: firstDefined(pickEnding(kv, '.attention.head_count'), undefined),
       headCountKv: firstDefined(pickEnding(kv, '.attention.head_count_kv'), undefined),
       keyLength: firstDefined(pickEnding(kv, '.attention.key_length'), undefined),
@@ -276,6 +287,10 @@
       kind: fb.kind,
       sizeLabel: fb.sizeLabel,
     }
+    // Whether this model can draft its own tokens. Either signal is enough:
+    // the declared layer count, or the nextn tensors actually present.
+    sum.hasMtp = Number(sum.nextnPredictLayers) > 0
+      || Number(parsed && parsed.nextnTensors) > 0
     return sum
   }
 
@@ -326,6 +341,7 @@
       contextLength: firstDefined(pickEndingV('.context_length'), fb.contextLength),
       embeddingLength: firstDefined(pickEndingV('.embedding_length'), fb.embeddingLength),
       blockCount: firstDefined(pickEndingV('.block_count'), undefined),
+      nextnPredictLayers: firstDefined(pickEndingV('.nextn_predict_layers'), undefined),
       headCount: firstDefined(pickEndingV('.attention.head_count'), undefined),
       headCountKv: firstDefined(pickEndingV('.attention.head_count_kv'), undefined),
       keyLength: firstDefined(pickEndingV('.attention.key_length'), undefined),
@@ -341,6 +357,8 @@
       blockWeightTensors: scan && scan.weightTensors ? Number(scan.weightTensors) : undefined,
       kind: fb.kind,
       sizeLabel: fb.sizeLabel,
+      hasMtp: Number(pickEndingV('.nextn_predict_layers')) > 0
+        || Number(scan && scan.nextnTensors) > 0,
       scanned: true,
     }
   }

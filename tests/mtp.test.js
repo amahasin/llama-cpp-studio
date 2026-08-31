@@ -152,6 +152,78 @@ async function main() {
       preset.ok && /spec-draft-model = C:\/m\/MTP\/mtp-gemma\.gguf/.test(preset.ini), String(preset.ini))
   }
 
+  // ---- a head built into the model file, with no second file at all ----
+  //
+  // Qwen3.6 carries its head as nextn layers inside the GGUF: the key
+  // "<arch>.nextn_predict_layers" and blk.N.nextn.* tensors. There is nothing
+  // beside the model to find, which is why detection alone missed it.
+  {
+    const gguf = LLAMA.gguf
+    const embedded = gguf.summarize({
+      kv: { 'qwen35moe.nextn_predict_layers': { type: 'uint32', value: 1 } },
+      nextnTensors: 4,
+    }, {})
+    check('a declared nextn layer count is read', embedded.nextnPredictLayers === 1)
+    check('and marks the model as supporting MTP', embedded.hasMtp === true)
+
+    const byTensors = gguf.summarize({ kv: {}, nextnTensors: 4 }, {})
+    check('nextn tensors alone are enough, when the key is absent', byTensors.hasMtp === true)
+
+    const plain = gguf.summarize({ kv: { 'llama.block_count': { type: 'uint32', value: 32 } }, nextnTensors: 0 }, {})
+    check('an ordinary model is not marked', plain.hasMtp === false)
+
+    const scanned = gguf.summarizeScan({
+      kv: { 'qwen35moe.nextn_predict_layers': { value: 2 } }, nextnTensors: 0,
+    }, {})
+    check('the streaming scanner reports it too', scanned.hasMtp === true)
+    check('and carries the layer count', scanned.nextnPredictLayers === 2)
+  }
+
+  // ---- built-in heads reach the command line as --spec-type ----
+  {
+    const server = Object.create(LLAMA.server.ServerManager.prototype)
+    server.deps = {
+      models: { async detectMtp() { return { ok: true, mtp: undefined, candidates: [] } } },
+      exec: { async stat() { return { exists: true, isDir: false } } },
+    }
+    const builtIn = { path: 'C:/m/qwen.gguf', name: 'qwen.gguf', metadata: { hasMtp: true } }
+
+    const on = await server._resolveMtp({}, builtIn)
+    check('a built-in head needs no draft-model file', on.draftModel === undefined)
+    check('and is turned on with --spec-type draft-mtp', on.specType === 'draft-mtp', String(on.specType))
+
+    const off = await server._resolveMtp({ mtp: false }, builtIn)
+    check('turning it off drops the spec type', off.specType === undefined)
+
+    const plain = { path: 'C:/m/plain.gguf', name: 'plain.gguf', metadata: {} }
+    const none = await server._resolveMtp({}, plain)
+    check('a model with neither gets no spec type', none.specType === undefined)
+
+    // llama.cpp ignores a draft model unless --spec-type says to use it, so the
+    // separate-file case has to set it too.
+    server.deps.models.detectMtp = async function () {
+      return { ok: true, mtp: 'C:/m/mtp-gemma.gguf', candidates: [] }
+    }
+    const separate = await server._resolveMtp({}, { path: 'C:/m/gemma.gguf', metadata: {} })
+    check('a separate head sets both the file and the spec type',
+      separate.draftModel === 'C:/m/mtp-gemma.gguf' && separate.specType === 'draft-mtp',
+      JSON.stringify(separate))
+
+    const cb = LLAMA.commandBuilder
+    const argv = cb.build({ path: 'C:/m/qwen.gguf', name: 'q.gguf', metadata: {}, profile: {} },
+      { capabilities: allCaps(), backend: 'cuda' }, { host: '127.0.0.1', port: 8080 },
+      { specType: 'draft-mtp' }).argv
+    check('the builder emits it',
+      argv[argv.indexOf('--spec-type') + 1] === 'draft-mtp', argv.join(' '))
+
+    const oldCaps = allCaps()
+    delete oldCaps['spec-type']
+    const oldArgv = cb.build({ path: 'C:/m/qwen.gguf', name: 'q.gguf', metadata: {}, profile: {} },
+      { capabilities: oldCaps, backend: 'cpu' }, { host: '127.0.0.1', port: 8080 },
+      { specType: 'draft-mtp' }).argv
+    check('a build without --spec-type is not handed it', !oldArgv.includes('--spec-type'))
+  }
+
   // ---- the per-model switch ----
   {
     const server = Object.create(LLAMA.server.ServerManager.prototype)

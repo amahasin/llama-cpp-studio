@@ -118,7 +118,9 @@ const PATCHES = [
     name: 'mtp-pill',
     why: 'a model that ships a multi-token-prediction head is served with it, '
       + 'and the library should say so the way it says "vision"',
-    present: 'function mtpPill(',
+    // Specific to this version of the patch: a marker that merely said "some
+    // mtpPill exists" would report an older revision of it as up to date.
+    present: 'const builtIn = (m.metadata || {}).hasMtp === true',
     find: [
       '    function modelCard(m) {',
     ].join('\n'),
@@ -128,17 +130,23 @@ const PATCHES = [
       '    // started differently from one that is not.',
       '    function mtpPill(m) {',
       '      const settings = m.settings || {}',
+      '      // Two ways a model can have a head: built into the file (Qwen3.6',
+      '      // carries nextn layers) or shipped beside it (gemma-4 ships',
+      '      // mtp-*.gguf). Either one gets the tag.',
+      '      const builtIn = (m.metadata || {}).hasMtp === true',
       '      const head = m.mtpPath || settings.mtpPath',
-      '      if (!head) return null',
+      '      if (!builtIn && !head) return null',
       '      if (settings.mtp === false) {',
       '        return h(comp.Pill, {',
       "          tone: 'mute', plain: true,",
-      "          title: 'An MTP head is available, but it is turned off in Model settings',",
+      "          title: 'This model supports multi-token prediction, but it is turned off in Model settings',",
       "        }, 'mtp off')",
       '      }',
       '      return h(comp.Pill, {',
       "        tone: 'accent', plain: true,",
-      "        title: 'Ships a multi-token-prediction head — served as the draft model for speculative decoding',",
+      '        title: builtIn',
+      "          ? 'Multi-token prediction is built into this model — served with --spec-type draft-mtp'",
+      "          : 'Ships a multi-token-prediction head beside the model — served as the draft model',",
       "      }, 'mtp')",
       '    }',
       '',
@@ -194,7 +202,7 @@ const PATCHES = [
     module: 'models.js',
     name: 'mtp-switch',
     why: 'without a control the head cannot be turned off for a model',
-    present: 'Multi-token prediction',
+    present: 'multi-token-prediction head to draft tokens ahead',
     find: "        h('div', { className: 'llama-section-title' }, 'Advanced'),",
     replace: [
       "        h('div', { className: 'llama-section-title' }, 'Speculative decoding'),",
@@ -203,9 +211,9 @@ const PATCHES = [
       '          // Never disabled: the launch also looks beside the model file, so',
       '          // a head dropped there later would otherwise be picked up with no',
       '          // way to have said no first.',
-      "          hint: 'Serve this model with its MTP head as the draft model, which speeds"
-        + ' up generation at the cost of the memory the head holds. Heads ship as'
-        + " mtp-*.gguf beside the model, sometimes in an MTP/ subfolder.',",
+      "          hint: 'Use this model\u2019s multi-token-prediction head to draft tokens ahead"
+        + ' of itself, which speeds up generation. Some models carry the head inside the'
+        + " file; others ship it beside them as mtp-*.gguf.',",
       "          onChange: function (v) { set('mtp', v) },",
       '        }),',
       '',

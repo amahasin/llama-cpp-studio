@@ -50,7 +50,10 @@ repository was unavailable.
 | `modules/github.js` | sends `Authorization` when a token is set; remediation text distinguishes the two cases | as above |
 | `modules/config.js` | new `server.idleUnloadMinutes` (default 30, clamped 0-1440) | a loaded model held VRAM indefinitely; the supervisor that acts on it is `src/idle.js`, which is this app's own code |
 | `modules/models.js` | `MTP_RE`, `MTP_SUBDIRS`, `detectMtp()`, `_attachMtp()`, `companionKind()`; `mtpPath` detected on import/download/rescan and rebased with the folder; `mtp` flag on the Hugging Face listing | multi-token-prediction heads ship beside the model and had no support at all |
-| `modules/server.js` | `_resolveMtp()` on both launch paths, setting `profile.draftModel` | so the head reaches llama.cpp |
+| `modules/server.js` | `_resolveMtp()` on both launch paths, setting `profile.draftModel` and `profile.specType` | so the head reaches llama.cpp — `--spec-type` defaults to `none`, so a draft model alone does nothing |
+| `modules/gguf.js` | keeps `*.nextn_predict_layers`, counts `*.nextn.*` tensors, reports `nextnPredictLayers` and `hasMtp` from both summarizers | Qwen3.6 carries its MTP head inside the model file, so there is no companion to detect |
+| `modules/exec.js` | the streaming GGUF scanner keeps the same key and counts the same tensors | the header-window parser is not used for every model |
+| `modules/commandBuilder.js` | `spec-type` option def, emitted from `profile.specType` | the flag that actually enables speculative decoding |
 | `modules/server.js` | `routerModels()` reports `workingSeconds` while a model is loading or unloading | llama.cpp exposes no load percentage at any verbosity, so elapsed time is the only honest signal |
 | `modules/commandBuilder.js` | `spec-draft-model` option def, emitted from `profile.draftModel` | the flag llama.cpp takes an MTP head through |
 | `modules/profiles.js` | `mtpPath` and `mtp` profile fields | the per-model switch has to persist |
