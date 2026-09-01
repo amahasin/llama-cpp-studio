@@ -10,7 +10,17 @@
 //   node tools/patch-client-bundle.js --check    report only, exit 1 if missing
 //
 // tests/bundle.test.js runs --check, so a re-pack that silently reverts these
-// fails the suite instead of quietly shipping the old behaviour.
+// fails the suite instead of quietly shipping the old behaviour. It also
+// rebuilds the bundle from the last pristine copy in this repo's history and
+// requires the result to be byte-identical to the one that ships.
+//
+// That second check exists because of how this file goes wrong. A patch's
+// `find` has to match the bundle **pack.js restores**, not the one in the tree
+// — and it is very easy to write it against the patched bundle sitting in
+// front of you, which re-applies cleanly, reports "present", and does nothing
+// until the day a re-pack actually needs it. Three patches had drifted that
+// way. Where one patch depends on another, order them and write each `find`
+// against what the earlier ones leave behind.
 'use strict'
 
 const fs = require('node:fs')
@@ -101,17 +111,10 @@ const PATCHES = [
     find: [
       "      h('iframe', {",
       '        key: root + \':\' + nonce,',
-      "        // Same-origin, through this app's own reverse proxy — see",
-      '        // src/http/proxy.js. Pointing the frame straight at llama-server',
-      '        // broke it on every device that is not the one it runs on:',
-      "        // 127.0.0.1 in a phone's browser is the phone. And a cross-origin",
-      '        // frame is not granted clipboard-write, which is why the copy',
-      "        // buttons in llama.cpp's UI silently did nothing.",
-      "        src: '/llama/',",
+      '        src: root,',
       "        className: 'llama-chat-iframe',",
       "        title: 'llama.cpp chat',",
       "        referrerPolicy: 'no-referrer',",
-      "        allow: 'clipboard-write; clipboard-read',",
       '      }))',
     ].join('\n'),
     replace: [
@@ -136,7 +139,7 @@ const PATCHES = [
     name: 'chat-open-in-new-tab',
     why: '"Open in new tab" had the same unreachable address',
     present: "window.open(frameSrc, '_blank')",
-    find: "onClick: function () { window.open('/llama/', '_blank') },",
+    find: "onClick: function () { window.open(root, '_blank') },",
     replace: "onClick: function () { window.open(frameSrc, '_blank') },",
   },
   {
@@ -545,20 +548,6 @@ const PATCHES = [
       "            onChange: function (v) { set('routerAutoload', v) },",
       '          }))',
       '        : null,',
-      "      h('div', { style: { marginTop: 4 } },",
-      '        h(comp.Field, {',
-      "          label: 'Unload an idle model after', flag: 'minutes',",
-      "          hint: form.mode === 'router'",
-      "            ? 'A model nobody has sent a request to gives its memory back. The router'",
-      "              + ' stays up and loads it again on the next request. 0 keeps models loaded.'",
-      "            : 'A model nobody has sent a request to gives its memory back. In single-model'",
-      "              + ' mode that means stopping the server, and nothing starts it again for you.'",
-      "              + ' 0 keeps the model loaded.',",
-      '        },',
-      '        h(comp.NumberInput, {',
-      '          value: form.idleUnloadMinutes, min: 0, max: 1440,',
-      "          onChange: function (v) { set('idleUnloadMinutes', v) },",
-      '        }))),',
     ].join('\n'),
     replace: [
       "      h('div', { className: 'llama-cols-2' },",

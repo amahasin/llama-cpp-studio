@@ -118,5 +118,7 @@ upstreaming.
 
 1. Record the upstream URL and revision above.
 2. Re-apply (or upstream) every row in the host-module table.
-3. `npm run patch-ui` for the UI bundle.
+3. `npm run patch-ui` for the UI bundle. Each patch's `find` must match the bundle a
+   re-pack restores, not the patched one in your tree — `bundle.test.js` rebuilds from
+   the pristine copy and requires a byte-identical result, which is what catches this.
 4. `npm test` — `bundle.test.js` is the one that notices a missing UI patch.

@@ -6,12 +6,67 @@
 // silently reverts all three. This suite is what makes that loud.
 'use strict'
 
+const fs = require('node:fs')
+const os = require('node:os')
 const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 
 const { APP_ROOT, createChecker } = require('./helpers.js')
 
 const { check, finish } = createChecker()
+
+// The last bundle in this repo's history that carries none of these patches.
+// pack.js restores something like it, so this is what the patcher has to be
+// able to start from.
+const PRISTINE_REV = '91db310'
+const PRISTINE_PATH = 'runtime/client.bundle.js'
+
+/**
+ * The patcher can rebuild the shipped bundle from a pristine one.
+ *
+ * This is the workflow the file exists for — pack.js overwrites the bundle,
+ * `npm run patch-ui` puts the fixes back — and it had quietly stopped working:
+ * three patches had been written against an already-patched bundle, so their
+ * `find` could never match what pack.js actually restores. Everything looked
+ * fine, because re-running the patcher on a tree that already carried them
+ * reported them present and did nothing.
+ *
+ * Byte-equality is the assertion: applying every patch to the pristine bundle
+ * has to produce exactly the bundle that ships.
+ */
+function rebuildSection() {
+  const shown = spawnSync('git', ['show', PRISTINE_REV + ':' + PRISTINE_PATH],
+    { encoding: 'utf8', cwd: APP_ROOT, maxBuffer: 64 * 1024 * 1024 })
+  if (shown.status !== 0 || !shown.stdout) {
+    console.log('  — skipped the pristine rebuild: git could not read '
+      + PRISTINE_REV + ':' + PRISTINE_PATH)
+    return
+  }
+
+  const shipped = fs.readFileSync(path.join(APP_ROOT, PRISTINE_PATH), 'utf8')
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'llama-bundle-'))
+  const target = path.join(APP_ROOT, PRISTINE_PATH)
+  const keep = path.join(scratch, 'shipped.js')
+  fs.writeFileSync(keep, shipped)
+
+  try {
+    fs.writeFileSync(target, shown.stdout)
+    const rebuild = spawnSync(process.execPath,
+      [path.join(APP_ROOT, 'tools', 'patch-client-bundle.js')],
+      { encoding: 'utf8', cwd: APP_ROOT })
+    const out = (rebuild.stdout || '') + (rebuild.stderr || '')
+    check('every patch applies to a pristine bundle', rebuild.status === 0 && !/FAILED/.test(out),
+      '\n' + out.trim().split('\n').filter(function (l) { return /FAILED|refusing/.test(l) })
+        .map(function (l) { return '      ' + l }).join('\n'))
+    const rebuilt = fs.readFileSync(target, 'utf8')
+    check('and rebuilds the shipped bundle exactly', rebuilt === shipped,
+      'rebuilt ' + rebuilt.length + ' bytes, shipped ' + shipped.length)
+  } finally {
+    // Whatever happened, the working tree gets its bundle back.
+    fs.writeFileSync(target, shipped)
+    try { fs.rmSync(scratch, { recursive: true, force: true }) } catch (_e) { /* best effort */ }
+  }
+}
 
 function main() {
   console.log('llama.cpp Studio client bundle patches')
@@ -51,7 +106,18 @@ function main() {
     /present: copy-fallback/.test(output))
   check('network and server flags are in a single card',
     /present: server-flags-single-card/.test(output))
+  check('the behaviour settings are one card in two columns',
+    /present: behaviour-single-card/.test(output))
+  check('the llama.cpp build card is regrouped',
+    /present: runtime-card-reorganized/.test(output))
+  check('the chat frame opens on the model that is loaded',
+    /present: chat-frame-follows-loaded-model/.test(output))
+  check('a warning on a successful command is shown',
+    /present: toast-warnings/.test(output)
+    && /present: act-reports-warnings/.test(output)
+    && /present: start-reports-warnings/.test(output))
 
+  rebuildSection()
   return finish('bundle.test.js')
 }
 
