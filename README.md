@@ -479,6 +479,41 @@ them was degraded. Pointing the frame at the loaded model fixes the original
 complaint at its source, so the rewrite is gone: the query is forwarded exactly
 as sent, and llama.cpp loads on demand the way it is designed to.
 
+### What a change invalidates
+
+Three things in this app hold a view of state that something else can change:
+
+| Holder | What it cached | Invalidated by |
+|---|---|---|
+| the running router | the launch flags it read from its preset at startup | anything that changes the library |
+| the update check | a comparison against the build that was active | installing, activating or removing a build |
+| a running `llama-server` | the binary it launched with | nothing — it has to be restarted |
+
+Each used to be refreshed at some call sites and not others, and three had been
+missed: a model you had just downloaded was not routable until a restart, a
+rescan that attached an MTP head did not change how the model launched, and
+"update available" stayed up after you installed the update. Which command
+invalidates what is a table now (`CHANGES_LIBRARY` / `CHANGES_BUILDS`), applied
+in one place, so a new command cannot quietly skip it. `tests/staleness.test.js`
+covers both directions — that the commands which change something refresh it,
+and that the ones which only read pay nothing.
+
+The third has no fix, only honesty: activating a build does not move a server
+that is already running, so doing it now says which build is still serving and
+that a restart is needed.
+
+### A success with something to say
+
+A command can succeed and still have a warning attached — most often that the
+change was saved but the running server did not pick it up. Both paths that run
+commands from the UI read only whether it succeeded, so those warnings went
+nowhere and the change showed a plain green success. They are now shown as
+warning toasts.
+
+Actions are also run one at a time, because two can race on the same config
+file. That was silent: while anything was running, every other button in the
+app looked live and did nothing. It now says which action it is waiting on.
+
 ### The log is not a transcript of the polling
 
 Router mode traces every request it forwards to a model instance:

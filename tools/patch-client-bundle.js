@@ -19,6 +19,15 @@ const { BUNDLED_UI } = require('../src/lib/layout.js')
 
 const MARKER = 'const INLINED_CLIENT_MODULES = '
 
+/**
+ * A patch target that is not one of the inlined modules.
+ *
+ * The bundle is a module map wrapped in loader code, and the stylesheet lives
+ * in that wrapper — so a fix to the CSS had nowhere to go and had to be made
+ * by hand after every re-pack, which is exactly what this file exists to stop.
+ */
+const SHELL = '(bundle shell)'
+
 // The app mark, shared with web/icon.svg and the tray icon in src/tray.ps1.
 const LLAMA_PATH = 'M23 57 C23 45 25 35 30 29 C32 25 32.5 22 33 19 '
   + 'L31.2 10 C30.6 5 35.2 4.4 36.2 9.4 L37.5 18 L42 17 L43 7.6 '
@@ -966,6 +975,135 @@ const PATCHES = [
       '          : null,',
     ].join('\n'),
   },
+  {
+    module: 'ui-core.js',
+    name: 'toast-warnings',
+    why: 'a command could succeed with a warning — most often that the change was saved but the running server did not pick it up — and act/start read only `ok`, so the user saw a plain success for a change that had not taken effect',
+    present: 'toastWarnings',
+    find: [
+      "    const toastOk = React.useCallback(function (text) { pushToast('ok', text) }, [pushToast])",
+      "    const toastErr = React.useCallback(function (text) { pushToast('err', text) }, [pushToast])",
+    ].join('\n'),
+    replace: [
+      "    const toastOk = React.useCallback(function (text) { pushToast('ok', text) }, [pushToast])",
+      "    const toastErr = React.useCallback(function (text) { pushToast('err', text) }, [pushToast])",
+      "    const toastWarn = React.useCallback(function (text) { pushToast('warn', text) }, [pushToast])",
+      '',
+      '    // A command can succeed and still have something to say — most often that',
+      '    // the change was saved but the running server did not pick it up. Both act',
+      '    // and start used to read only `ok`, so those went nowhere and the user saw',
+      '    // a plain green success for a change that had not taken effect.',
+      '    const toastWarnings = React.useCallback(function (r) {',
+      '      const list = (r && r.warnings) || []',
+      '      for (let i = 0; i < list.length; i += 1) toastWarn(String(list[i]))',
+      '    }, [toastWarn])',
+    ].join('\n'),
+  },
+  {
+    module: 'ui-core.js',
+    name: 'act-reports-warnings',
+    why: 'as above, on the foreground path; and a second action while one is running returned silently, so every other button looked live and did nothing',
+    present: 'Still running ',
+    find: [
+      '    const act = React.useCallback(async function (name, args, okText) {',
+      '      if (busy !== undefined) return undefined',
+      '      setBusy(name)',
+      '      try {',
+      '        const r = await C.call(name, args)',
+      '        if (r && r.ok) {',
+      '          if (okText) toastOk(okText)',
+      '          await refresh()',
+      '        } else if (r) {',
+    ].join('\n'),
+    replace: [
+      '    const act = React.useCallback(async function (name, args, okText) {',
+      '      if (busy !== undefined) {',
+      '        // One at a time: two of these can race on the same config file. It',
+      '        // used to return silently, so every other button in the app looked',
+      '        // live and did nothing for as long as anything was running.',
+      "        toastWarn('Still running ' + busy + '. Wait for it to finish.')",
+      '        return undefined',
+      '      }',
+      '      setBusy(name)',
+      '      try {',
+      '        const r = await C.call(name, args)',
+      '        if (r && r.ok) {',
+      '          if (okText) toastOk(okText)',
+      '          toastWarnings(r)',
+      '          await refresh()',
+      '        } else if (r) {',
+    ].join('\n'),
+  },
+  {
+    module: 'ui-core.js',
+    name: 'act-warning-deps',
+    why: 'the new callbacks belong in the dependency list',
+    present: 'toastWarn, toastWarnings]',
+    find: [
+      '      } finally {',
+      '        setBusy(undefined)',
+      '      }',
+      '    }, [busy, toastOk, toastErr])',
+    ].join('\n'),
+    replace: [
+      '      } finally {',
+      '        setBusy(undefined)',
+      '      }',
+      '    }, [busy, toastOk, toastErr, toastWarn, toastWarnings])',
+    ].join('\n'),
+  },
+  {
+    module: 'ui-core.js',
+    name: 'start-reports-warnings',
+    why: 'as above, on the background path',
+    present: 'toastWarnings(res)',
+    find: [
+      '      C.call(name, args).then(function (res) {',
+      '        if (res && res.ok) {',
+      '          if (okText) toastOk(okText)',
+      '        } else if (res) {',
+    ].join('\n'),
+    replace: [
+      '      C.call(name, args).then(function (res) {',
+      '        if (res && res.ok) {',
+      '          if (okText) toastOk(okText)',
+      '          toastWarnings(res)',
+      '        } else if (res) {',
+    ].join('\n'),
+  },
+  {
+    module: 'ui-core.js',
+    name: 'start-warning-deps',
+    why: 'the new callback belongs in the dependency list',
+    present: 'toastErr, toastWarnings]',
+    find: [
+      '          return next',
+      '        })',
+      '        refresh()',
+      '      })',
+      '    }, [toastOk, toastErr])',
+    ].join('\n'),
+    replace: [
+      '          return next',
+      '        })',
+      '        refresh()',
+      '      })',
+      '    }, [toastOk, toastErr, toastWarnings])',
+    ].join('\n'),
+  },
+  {
+    module: SHELL,
+    name: 'toast-warn-tone',
+    why: 'the warn toast had no style of its own, so it read as an ordinary message',
+    present: "llama-toast[data-tone='warn']",
+    find: [
+      ".llama-toast[data-tone='err'] { border-left: 3px solid var(--lc-err); }",
+    ].join('\n'),
+    replace: [
+      ".llama-toast[data-tone='err'] { border-left: 3px solid var(--lc-err); }",
+      ".llama-toast[data-tone='warn'] { border-left: 3px solid var(--lc-warn); }",
+    ].join('\n'),
+  },
 ]
 
 function readBundle() {
@@ -1019,7 +1157,31 @@ function main() {
   const already = []
   const failed = []
 
+  // The wrapper is two pieces, one either side of the module map; a shell
+  // patch is looked for in both rather than having to say which.
+  const shell = { before, after }
+
   for (const patch of PATCHES) {
+    const where = patch.module === SHELL
+      ? ['before', 'after'].filter(function (k) { return shell[k].indexOf(patch.present) !== -1 })
+      : undefined
+
+    if (patch.module === SHELL) {
+      if (where.length > 0) {
+        already.push(patch.name)
+        continue
+      }
+      const at = ['before', 'after'].find(function (k) { return shell[k].indexOf(patch.find) !== -1 })
+      if (at === undefined) {
+        failed.push(patch.name + ': the code it patches is not in the bundle shell'
+          + ' (upstream changed it — re-check the patch)')
+        continue
+      }
+      shell[at] = shell[at].replace(patch.find, patch.replace)
+      applied.push(patch.name)
+      continue
+    }
+
     const code = modules[patch.module]
     if (code === undefined) {
       failed.push(patch.name + ': no module ' + patch.module + ' in the bundle')
@@ -1061,7 +1223,7 @@ function main() {
     console.log('\nnothing to do.')
     return 0
   }
-  fs.writeFileSync(BUNDLED_UI, before + JSON.stringify(modules) + after)
+  fs.writeFileSync(BUNDLED_UI, shell.before + JSON.stringify(modules) + shell.after)
   console.log('\nwrote ' + BUNDLED_UI)
   return 0
 }

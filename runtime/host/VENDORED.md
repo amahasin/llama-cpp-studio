@@ -62,6 +62,9 @@ repository was unavailable.
 | `modules/api.js` | `_afterLibraryChange()` wraps saveSettings / resetSettings / addFlag / import / delete | a running router never re-read its preset, so changed launch flags did nothing until a restart |
 | `modules/server.js` | `refreshRouterPreset()`, and `_planRouter` accepts `forceWritePreset` so it can write without claiming the port | rewrites the preset and calls `GET /models?reload=1` |
 | `modules/logs.js` | `ROUTINE_ROUTER_NOISE`; `_append()` drops the router's per-request trace and counts it, `_push()` carries the old body, one summary line every 250 | in router mode llama.cpp logs "proxying request to model X on port N" for every forwarded request, and this app polls two model-scoped endpoints every two seconds — one line a second, 80% of the log, and the 6000-line ring lost every real error inside two hours |
+| `modules/api.js` | `CHANGES_LIBRARY` / `CHANGES_BUILDS` tables and `_afterChange()`, applied once in `cmd()`; the per-case `_afterLibraryChange(...)` calls removed | the calls were sprinkled through the dispatcher and three commands had been missed: a downloaded model never reached the running router's preset, nor did a rescan that attached an MTP head |
+| `modules/api.js` | `_afterBuildChange()` clears the cached update check, and warns when a build is activated while a server runs on a different one | installing an update left "update available" up for the rest of the 5-minute cache window, and activating a build silently did nothing to the running server |
+| `modules/api.js` | `_progress()` throttles `[install]` lines the way it already throttled `[download]` | the install emitter ticks once a second, so one engine install wrote hundreds of identical "Downloading the CUDA runtime" lines |
 
 Nothing in `runtime/host/**` was changed for the mobile layout, the app icon or
 the chat fixes — those live in `web/`, `src/http/` and the bundle patches below.
@@ -93,6 +96,9 @@ npm run patch-ui
 | `api-key-controls` / `api-key-state` | the API key field gains show/hide and copy, fetching the real key through `settings.reveal` | the field only ever held the redacted placeholder |
 | `behaviour-single-card` | Startup & recovery and Manager defaults become one card in two columns | two cards of different heights side by side left the shorter one trailing empty card, and the border between them implied a separation that is not there — they are read together when a server will not start |
 | `runtime-card-reorganized` | the llama.cpp build card is regrouped: status and Check for updates on top, then Backend and Install location as labelled columns, then the download button with its switch, then the per-build CUDA runtime | the backend select sat unlabelled in the header beside Check for updates, so nothing said what it chose or that the download button acted on it; a field labelled "Downloads" held a button and a switch; and a bare "CUDA runtime:" label trailed loose buttons |
+| `toast-warnings` / `act-reports-warnings` / `start-reports-warnings` (+ their dependency-list patches) | a successful result's `warnings` are shown as warn toasts | `act` and `start` read only `ok`, so a save that succeeded while the running server ignored it showed a plain green success |
+| `act-reports-warnings` | a second action while one is running says so instead of returning silently | actions are serialised, but nothing told you — every other button in the app looked live and did nothing until the first finished |
+| `toast-warn-tone` (shell) | `.llama-toast[data-tone='warn']` | the new tone had no style, so a warning read as an ordinary message |
 
 The first two depend on the reverse proxy in `src/http/proxy.js`, and the last
 four are the front end for `src/idle.js` — both this app's own code, unaffected

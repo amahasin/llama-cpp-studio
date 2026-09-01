@@ -20,6 +20,7 @@ const SUITES = [
   ['mtp.test.js', 'multi-token-prediction heads: detection, tagging and the argv'],
   ['progress.test.js', 'the load fraction the router streams, weighted across stages'],
   ['preset.test.js', 'changed launch flags reach a router that is already running'],
+  ['staleness.test.js', 'a change reaches everything that had cached the old answer'],
   ['smoke.js', 'boots the real app and drives it over RPC'],
   ['paths.test.js', 'the folder stays self-contained when it moves'],
   ['vision.test.js', 'the per-model vision toggle, end to end'],

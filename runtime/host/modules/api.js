@@ -37,6 +37,25 @@
   }
 
   // How long a latest-release lookup stays cached, by outcome.
+  /**
+   * What a command invalidates somewhere else, as a table.
+   *
+   * This used to be calls sprinkled through the switch in _dispatch, and three
+   * commands had been missed that way: a downloaded model never reached the
+   * running router's preset, a rescan that attached an MTP head never reached
+   * it either, and installing a build left the update check still advertising
+   * the update you had just installed. The symptom is the same every time —
+   * the app acting on something it already knows is stale — and a list is
+   * much harder to forget to add to than a call site.
+   */
+  const CHANGES_LIBRARY = new Set([
+    'models.import', 'models.download', 'models.delete', 'models.rescan',
+    'models.saveSettings', 'models.resetSettings', 'models.addFlag',
+  ])
+  const CHANGES_BUILDS = new Set([
+    'versions.install', 'versions.activate', 'versions.remove',
+  ])
+
   const LATEST_TTL_MS = 5 * 60 * 1000
   const LATEST_FAIL_TTL_MS = 60 * 1000
   const LATEST_RATE_LIMIT_TTL_MS = 15 * 60 * 1000
@@ -60,7 +79,16 @@
     this.progressRing.push(entry)
     if (this.progressRing.length > 60) this.progressRing.splice(0, this.progressRing.length - 60)
     if (event === 'install' && fields && fields.stage) {
-      this.log('[install] ' + (fields.message || fields.stage))
+      // Throttled like the download below it, and for the same reason: this
+      // fires about once a second for the whole transfer, so a single engine
+      // install wrote hundreds of identical "Downloading the CUDA runtime"
+      // lines and pushed everything else out of the log.
+      const text = String(fields.message || fields.stage)
+      const step = fields.percent === undefined ? '' : ' ' + Math.floor(fields.percent / 10) * 10 + '%'
+      if (this._lastInstallLog !== text + step) {
+        this._lastInstallLog = text + step
+        this.log('[install] ' + text + step)
+      }
     } else if (event === 'model-download' && fields && fields.stage === 'download' && fields.percent !== undefined) {
       // throttle: only log whole tens
       const p = Math.floor(fields.percent / 10) * 10
@@ -246,6 +274,51 @@
     return result
   }
 
+  /**
+   * Whatever the command just changed, made to reach the things that cached a
+   * view of it. See CHANGES_LIBRARY / CHANGES_BUILDS for why this is a table.
+   */
+  Manager.prototype._afterChange = async function (method, result) {
+    if (!result || result.ok !== true) return result
+    if (CHANGES_LIBRARY.has(method)) return this._afterLibraryChange(result)
+    if (CHANGES_BUILDS.has(method)) return this._afterBuildChange(method, result)
+    return result
+  }
+
+  /**
+   * The set of installed builds changed.
+   *
+   * The update check compares the newest release against the build that is
+   * active and is cached for five minutes, so installing the update left the
+   * "update available" badge up for the rest of that window — the app telling
+   * you to do the thing you had just done.
+   */
+  Manager.prototype._afterBuildChange = function (method, result) {
+    this._latestCache = undefined
+    this._latestKey = undefined
+    this._latestUntil = 0
+
+    // Activating a build does not move a server that is already running: it
+    // keeps the binary it launched with, and goes on reporting that version
+    // everywhere, which reads as the switch having done nothing.
+    if (method === 'versions.activate') {
+      let live
+      try {
+        live = this.server ? this.server.status() : undefined
+      } catch (_e) {
+        live = undefined
+      }
+      if (live && live.state === 'RUNNING' && live.version !== undefined
+        && live.version !== result.activeVersion) {
+        result.warnings = (result.warnings || []).concat([
+          'llama-server is still running ' + live.version
+          + '. Restart it to use ' + result.activeVersion + '.',
+        ])
+      }
+    }
+    return result
+  }
+
   // ---------- command router ----------
 
   Manager.prototype.cmd = async function (method, args) {
@@ -254,6 +327,7 @@
     let result
     try {
       result = await this._dispatch(method, a)
+      result = await this._afterChange(method, result)
     } catch (err) {
       const message = String(err && err.message ? err.message : err)
       this.log('command ' + method + ' failed: ' + message)
@@ -299,12 +373,11 @@
         }
 
         case 'models.list': return this.models.list()
-        case 'models.import': return this._afterLibraryChange(await this.models.importModel(a))
+        case 'models.import': return this.models.importModel(a)
         case 'models.download': return this.models.downloadModel(a)
         case 'models.cancelDownload': return this.models.cancelDownload(String(a.id || ''))
         case 'models.delete':
-          return this._afterLibraryChange(
-            await this.models.deleteModel(String(a.id || ''), { deleteCompanion: a.deleteCompanion === true }))
+          return this.models.deleteModel(String(a.id || ''), { deleteCompanion: a.deleteCompanion === true })
         case 'models.rescan': return this.models.rescan(String(a.id || ''))
         case 'models.inspect':
           if (a.id) {
@@ -316,11 +389,11 @@
         case 'models.hfFiles': return this.models.hfListFiles(a.repo)
         case 'models.settings': return this.models.getSettings(String(a.id || ''))
         case 'models.saveSettings':
-          return this._afterLibraryChange(await this.models.saveSettings(String(a.id || ''), a.settings))
+          return this.models.saveSettings(String(a.id || ''), a.settings)
         case 'models.resetSettings':
-          return this._afterLibraryChange(await this.models.resetSettings(String(a.id || '')))
+          return this.models.resetSettings(String(a.id || ''))
         case 'models.addFlag':
-          return this._afterLibraryChange(await this.models.addFlag(String(a.id || ''), a.flag, a.value))
+          return this.models.addFlag(String(a.id || ''), a.flag, a.value)
         case 'models.detectMtp': {
           if (a.id) {
             const m = await this.models.get(String(a.id))
