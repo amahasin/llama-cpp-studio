@@ -92,6 +92,7 @@ npm run patch-ui
 | `access-single-column` / `tls-single-column` | Access & Remote Access is one field per row | four fields across a row left each about 190px, too narrow for URLs and origin lists |
 | `api-key-controls` / `api-key-state` | the API key field gains show/hide and copy, fetching the real key through `settings.reveal` | the field only ever held the redacted placeholder |
 | `behaviour-single-card` | Startup & recovery and Manager defaults become one card in two columns | two cards of different heights side by side left the shorter one trailing empty card, and the border between them implied a separation that is not there — they are read together when a server will not start |
+| `runtime-card-reorganized` | the llama.cpp build card is regrouped: status and Check for updates on top, then Backend and Install location as labelled columns, then the download button with its switch, then the per-build CUDA runtime | the backend select sat unlabelled in the header beside Check for updates, so nothing said what it chose or that the download button acted on it; a field labelled "Downloads" held a button and a switch; and a bare "CUDA runtime:" label trailed loose buttons |
 
 The first two depend on the reverse proxy in `src/http/proxy.js`, and the last
 four are the front end for `src/idle.js` — both this app's own code, unaffected
