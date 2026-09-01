@@ -99,6 +99,7 @@ npm run patch-ui
 | `toast-warnings` / `act-reports-warnings` / `start-reports-warnings` (+ their dependency-list patches) | a successful result's `warnings` are shown as warn toasts | `act` and `start` read only `ok`, so a save that succeeded while the running server ignored it showed a plain green success |
 | `act-reports-warnings` | a second action while one is running says so instead of returning silently | actions are serialised, but nothing told you — every other button in the app looked live and did nothing until the first finished |
 | `toast-warn-tone` (shell) | `.llama-toast[data-tone='warn']` | the new tone had no style, so a warning read as an ordinary message |
+| `api-key-generate-fn` / `api-key-generate-button` | a Generate button beside show and copy, filling the field with 32 bytes of `crypto.getRandomValues` as base64url | the card could show and copy a key but not produce one, so it had to be invented by hand — and a hand-invented key is a short one. The toast says a running server keeps the key it launched with, because `--api-key-file` is read once at startup |
 
 The first two depend on the reverse proxy in `src/http/proxy.js`, and the last
 four are the front end for `src/idle.js` — both this app's own code, unaffected

@@ -102,6 +102,8 @@ function main() {
     /present: access-single-column/.test(output) && /present: tls-single-column/.test(output))
   check('the API key can be shown and copied',
     /present: api-key-controls/.test(output) && /present: api-key-state/.test(output))
+  check('and generated',
+    /present: api-key-generate-fn/.test(output) && /present: api-key-generate-button/.test(output))
   check('copying works on a non-secure origin too',
     /present: copy-fallback/.test(output))
   check('network and server flags are in a single card',
