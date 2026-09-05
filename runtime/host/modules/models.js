@@ -155,17 +155,43 @@
    * with a real model.
    *
    * Registrations made before this distinction existed are classified here too,
-   * by name, so a library that already collected companion files tidies itself
-   * up on the next read rather than needing manual cleanup.
+   * so a library that already collected companion files — or mislabelled a
+   * model as one — tidies itself up on the next read rather than needing
+   * manual cleanup.
    *
    * Returns the kind, or undefined for an ordinary model.
    */
   function companionKind(entry) {
+    // What the file says it is beats what it is called. "MTP" turns up in the
+    // middle of plenty of model names — Ornith-1.5-35B-A3B-APEX-MTP-I-Compact
+    // is a 17GB model, not a head — and filing one of those as a companion
+    // hides it from the library completely, with nothing to say why.
+    const stated = kindFromMetadata(entry.metadata)
+    if (stated !== undefined) return stated === 'model' ? undefined : stated
+
     if (entry.kind === 'mmproj' || entry.kind === 'mtp') return entry.kind
     if (entry.kind === 'model') return undefined
     const name = String(entry.name || util.basename(entry.path || ''))
     if (MMPROJ_RE.test(name)) return 'mmproj'
     if (MTP_RE.test(name)) return 'mtp'
+    return undefined
+  }
+
+  /**
+   * What an inspected GGUF is, from its own header.
+   *
+   * Only two things here are conclusive. A projector announces itself as the
+   * `clip` architecture. And a file carrying a tokenizer is something that can
+   * answer a request on its own: a companion head holds a few extra layers and
+   * borrows the vocabulary of the model it rides with, so it has none.
+   *
+   * Anything else returns undefined and the caller falls back to the name,
+   * which is all there is for a file this app has not opened.
+   */
+  function kindFromMetadata(md) {
+    if (!util.isPlainObject(md)) return undefined
+    if (String(md.architecture || '').toLowerCase() === 'clip') return 'mmproj'
+    if (md.tokenizerModel !== undefined || md.vocabSize !== undefined) return 'model'
     return undefined
   }
 
@@ -794,6 +820,10 @@
     const inspect = await this.inspectFile(entry.path)
     if (!inspect.ok) return inspect
     entry.metadata = inspect.metadata
+    // The file has just been read. If it says it is a model, a companion label
+    // left over from a guess made on the name alone is wrong, and this is the
+    // moment there is better evidence than the name.
+    if (kindFromMetadata(entry.metadata) === 'model') entry.kind = 'model'
     await this._withMmproj(entry)
     await this._writeMeta(meta)
     return { ok: true, model: entry }

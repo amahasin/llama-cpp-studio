@@ -65,6 +65,7 @@ repository was unavailable.
 | `modules/api.js` | `CHANGES_LIBRARY` / `CHANGES_BUILDS` tables and `_afterChange()`, applied once in `cmd()`; the per-case `_afterLibraryChange(...)` calls removed | the calls were sprinkled through the dispatcher and three commands had been missed: a downloaded model never reached the running router's preset, nor did a rescan that attached an MTP head |
 | `modules/api.js` | `_afterBuildChange()` clears the cached update check, and warns when a build is activated while a server runs on a different one | installing an update left "update available" up for the rest of the 5-minute cache window, and activating a build silently did nothing to the running server |
 | `modules/api.js` | `_progress()` throttles `[install]` lines the way it already throttled `[download]` | the install emitter ticks once a second, so one engine install wrote hundreds of identical "Downloading the CUDA runtime" lines |
+| `modules/models.js` | new `kindFromMetadata()`; `companionKind()` consults the inspected GGUF before the filename, and `rescan()` clears a companion label the file contradicts | classification was by name alone, so `Ornith-1.5-35B-A3B-APEX-MTP-I-Compact.gguf` — a 17GB model — was filed as an MTP head and vanished from the library with nothing to say why |
 
 Nothing in `runtime/host/**` was changed for the mobile layout, the app icon or
 the chat fixes — those live in `web/`, `src/http/` and the bundle patches below.

@@ -116,6 +116,33 @@ async function main() {
       kind({ name: 'gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf' }) === undefined)
     check('an explicit kind is respected over the name',
       kind({ name: 'mtp-thing.gguf', kind: 'model' }) === undefined)
+
+    // "MTP" turns up in the middle of real model names, and a model filed as a
+    // companion vanishes from the library with nothing to say why. A file that
+    // has been inspected is classified on what it holds: a tokenizer means it
+    // can answer a request on its own, so it is a model whatever it is called.
+    const servable = {
+      architecture: 'qwen35moe', blockCount: 41, tokenizerModel: 'gpt2',
+      vocabSize: 248320, hasChatTemplate: true, nextnPredictLayers: 1, hasMtp: true,
+    }
+    check('a model whose name contains MTP is still a model',
+      kind({ name: 'Ornith-1.5-35B-A3B-APEX-MTP-I-Compact.gguf', metadata: servable }) === undefined)
+    check('  even when it was already filed as a head',
+      kind({ name: 'Ornith-1.5-35B-A3B-APEX-MTP-I-Compact.gguf', kind: 'mtp', metadata: servable }) === undefined)
+
+    // A real head borrows the vocabulary of the model it rides with, so it has
+    // no tokenizer of its own and the name still decides.
+    const head = { architecture: 'gemma4', blockCount: 1, nextnPredictLayers: 1 }
+    check('a head with no tokenizer is still a head',
+      kind({ name: 'mtp-gemma-4-26B-A4B-it.gguf', metadata: head }) === 'mtp')
+
+    // A projector announces itself, so it needs no help from the name.
+    check('a clip file is a projector however it is named',
+      kind({ name: 'vision-tower.gguf', metadata: { architecture: 'clip', blockCount: 27 } }) === 'mmproj')
+
+    // Nothing inspected yet — the name is all there is, as before.
+    check('an uninspected file falls back to its name',
+      kind({ name: 'mtp-gemma-4-26B.gguf', metadata: undefined }) === 'mtp')
   }
 
   // ---- the command line ----
