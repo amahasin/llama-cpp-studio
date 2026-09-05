@@ -195,6 +195,7 @@ standalone/
     ├── bundle.test.js       the vendored UI still carries this app's fixes
     ├── secrets.test.js      secret redaction, and the save round-trip
     ├── proxy.test.js        llama-server through this origin, session gate intact
+    ├── gate.test.js         the API key as the front door when Studio is not local
     ├── tray.test.js         the tray reports the real state, not a fixed one
     ├── idle.test.js         an unused model gives its memory back; a busy one does not
     ├── mtp.test.js          MTP head detection, tagging and the draft-model argv
@@ -674,8 +675,8 @@ wherever an emoji font was missing.
   `unsafe-eval` (the UI bundle is evaluated with `new Function`, which is the
   architecture) but not `unsafe-inline`, so an injected string cannot become a
   script.
-- The API is *not* authenticated beyond the token; treat it as a local desktop
-  app, not a service to expose.
+- **The API key is the front door.** Set one and Studio asks for it before
+  letting in anyone who is not sitting at this machine — see below.
 - **Copying works over plain http too.** `navigator.clipboard` does not exist
   on a non-secure origin, so every Copy button in the app was dead when it was
   reached over a LAN address; there is a fallback now.
@@ -697,6 +698,50 @@ wherever an emoji font was missing.
 - `llama-server` itself still binds whatever you set in Server Config
   (localhost by default).
 
+### Signing in from outside this machine
+
+Studio used to hand a session to whoever could open its port: `GET /` answered
+unauthenticated and set the cookie every other route checks. On a loopback bind
+that is fine — the operating system is the boundary. Published through a tunnel
+it is not: the URL becomes the only secret, and the API key protecting
+`llama-server` does nothing for the browser half.
+
+So the key that serves the models also opens the UI. Nothing extra to configure:
+**set an API key and the front door locks.**
+
+| Reached as | What happens |
+|---|---|
+| `http://127.0.0.1:<port>` on this machine | opens straight away, as before |
+| a tunnel, a LAN address, any reverse proxy | an unlock page asking for the API key |
+| no API key set at all | nothing changes — there would be nothing to unlock with |
+
+Unlocking sets the same `HttpOnly; SameSite=Strict` session cookie the app
+already uses, so it is asked once per browser and the session lasts until the
+app restarts. A caller with no browser — a script — can send the key as
+`Authorization: Bearer <key>` instead, on the RPC route and on the proxied
+`llama-server` endpoints.
+
+**What counts as "sitting at this machine"** is deliberately strict, because
+the obvious test is wrong in the case that matters. Both halves must agree:
+
+- the connection must arrive from loopback — otherwise anyone on the LAN could
+  send `Host: localhost` and walk in;
+- the `Host` must be a loopback name — otherwise a tunnel running on this same
+  machine (`cloudflared` and friends usually do) looks local, which is exactly
+  what the lock is for.
+
+Any `X-Forwarded-*` or `Forwarded` header settles it on its own: nothing adds
+one except a proxy. An address that cannot be read is treated as remote.
+
+Only two things answer without a session: `GET /api/health`, so a tunnel or a
+watchdog can probe it, and the unlock page itself. The app shell, the assets,
+the RPC channel and the proxied `llama-server` are all behind the door — the
+shell in particular, because it is what carries the session token.
+
+Changing the key does not end sessions already unlocked; restarting the app
+does, since the session token is minted per run. A changed key needs a server
+restart to take effect anyway.
+
 ### GitHub rate limits
 
 Checking for new llama.cpp builds uses the GitHub API, which allows 60
@@ -716,7 +761,7 @@ node tests\vision.test.js          # the per-model vision toggle, end to end
 node tests\router.test.js          # router mode: presets, ids, load/unload
 node tests\units.test.js           # the pure modules, no app boot
 node tests\secrets.test.js         # secret redaction and its round trip
-npm test                           # all thirteen, with a summary table
+npm test                           # all fifteen, with a summary table
 ```
 
 `units.test.js` is the fast one and needs nothing installed: it feeds generated
@@ -727,6 +772,11 @@ only ever carries flags the installed binary advertises. `secrets.test.js` check
 that the API key and the GitHub token are redacted on every path out of the host
 and — the half that matters more — that saving the settings form without touching
 the key field keeps the stored key instead of overwriting it with the placeholder.
+
+`gate.test.js` is the one to read if you publish this: it pins down who counts
+as local (both the socket and the `Host`, so a tunnel on this same machine does
+not slip through), that a locked-out caller is never handed the session token,
+and that the unlock exchange ends in a working session.
 
 `smoke.js` checks the server, the token gate, the served bundle, and drives real
 commands (`status`, `settings.get/update`, `diagnostics`, `hardware`) against

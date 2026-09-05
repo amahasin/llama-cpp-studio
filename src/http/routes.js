@@ -12,6 +12,7 @@ const { WEB_DIR, clientBundlePath } = require('../lib/layout.js')
 const { MIME, sendJson, sendText, sendFile, notFound, readBody } = require('./respond.js')
 const { contentSecurityPolicy } = require('./csp.js')
 const { createProxy } = require('./proxy.js')
+const { createGate, LOGIN_PATH } = require('./gate.js')
 
 const BODY_LIMIT = 4 * 1024 * 1024
 const CLIENT_BUNDLE = 'client.bundle.js'
@@ -73,6 +74,9 @@ function createRouter(deps) {
   const proxy = createProxy({ manager, log: deps.log })
   const version = deps.version || 'dev'
   const log = deps.log || function () {}
+  // The API key, when one is set, is also what opens Studio to anyone who is
+  // not sitting at this machine. See gate.js for what "sitting at" means.
+  const gate = createGate({ manager, token, sessionCookie, log })
 
   function serveIndex(req, res) {
     const page = indexTemplate
@@ -109,8 +113,20 @@ function createRouter(deps) {
     sendFile(res, file)
   }
 
+  /**
+   * The session token, or the API key as a bearer.
+   *
+   * Deliberately not the cookie, which `authorized()` does accept: a cookie
+   * rides along on a cross-site request whether the user meant it or not, and
+   * a header does not without the CORS preflight this route already gates.
+   * Both of these are headers, so both are safe here.
+   */
+  function rpcAuthorized(req) {
+    return req.headers['x-llama-token'] === token || gate.bearerMatches(req)
+  }
+
   async function serveRpc(req, res, url, originAllowed) {
-    if (req.headers['x-llama-token'] !== token || !originAllowed) {
+    if (!rpcAuthorized(req) || !originAllowed) {
       sendJson(res, 403, {
         ok: false,
         code: 'FORBIDDEN',
@@ -144,11 +160,15 @@ function createRouter(deps) {
   }
 
   // Matched in order; `prefix` routes claim everything beneath them.
+  //
+  // `open` marks the two a locked-out caller must still reach: the door itself,
+  // and the health probe a tunnel or a watchdog pings without a session.
   const ROUTES = [
     { method: 'GET', paths: ['/', '/index.html'], handler: serveIndex },
     { method: 'GET', prefix: '/assets/', handler: serveAsset },
     { method: 'POST', paths: ['/api/rpc'], handler: serveRpc },
-    { method: 'GET', paths: ['/api/health'], handler: serveHealth },
+    { method: 'GET', paths: ['/api/health'], handler: serveHealth, open: true },
+    { method: 'POST', paths: [LOGIN_PATH], handler: gate.submit, open: true },
   ]
 
   function match(method, pathname) {
@@ -165,7 +185,10 @@ function createRouter(deps) {
    */
   function authorized(req) {
     if (req.headers['x-llama-token'] === token) return true
-    return cookieValue(req, SESSION_COOKIE) === token
+    if (cookieValue(req, SESSION_COOKIE) === token) return true
+    // A script has no browser to unlock in; the key it already sends to
+    // llama-server is accepted here too.
+    return gate.bearerMatches(req)
   }
 
   return async function handle(req, res) {
@@ -187,6 +210,15 @@ function createRouter(deps) {
 
     try {
       const route = match(req.method, url.pathname)
+
+      // The front door. Checked before the route runs, so nothing — not the
+      // shell that carries the session token, not the assets, not the proxied
+      // llama-server — answers a caller who has not been let in.
+      if ((route === undefined || route.open !== true) && gate.locked(req, authorized(req))) {
+        gate.refuse(req, res)
+        return
+      }
+
       if (route !== undefined) {
         await route.handler(req, res, url, originAllowed)
         return

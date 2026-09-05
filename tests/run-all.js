@@ -15,6 +15,7 @@ const SUITES = [
   ['bundle.test.js', 'the vendored UI still carries this app’s fixes'],
   ['secrets.test.js', 'API key and GitHub token redaction, and the save round-trip'],
   ['proxy.test.js', 'llama-server reached through this origin, with the session gate'],
+  ['gate.test.js', 'the API key is the front door when Studio is not reached locally'],
   ['tray.test.js', 'the system tray reports the real server state, not a fixed one'],
   ['idle.test.js', 'an unused model gives its memory back, a busy one never does'],
   ['mtp.test.js', 'multi-token-prediction heads: detection, tagging and the argv'],
