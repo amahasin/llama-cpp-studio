@@ -306,6 +306,24 @@
     }
 
     for (const s of skipped) warnings.push('option --' + s + ' skipped (not supported by installed version)')
+
+    // Speculative decoding needs something to draft with. `--spec-type
+    // draft-mtp` on its own is not an error llama.cpp will refuse — it just
+    // generates at the ordinary speed — so a model asking for it with neither
+    // a draft model nor a head built into its own file is asking for nothing.
+    // This is easy to arrive at by hand: turning MTP off in Model settings
+    // withholds --spec-draft-model, while an extra argument can still put
+    // --spec-type back.
+    const specAt = argv.indexOf('--spec-type')
+    if (specAt !== -1 && String(argv[specAt + 1]) === 'draft-mtp'
+      && argv.indexOf('--spec-draft-model') === -1
+      && (model.metadata || {}).hasMtp !== true) {
+      warnings.push('--spec-type draft-mtp is set but there is no head to draft with:'
+        + ' this model has none built in and no --spec-draft-model was passed.'
+        + ' Turn on Multi-token prediction in Model settings to use the mtp-*.gguf'
+        + ' beside it, or drop the flag.')
+    }
+
     return { ok: true, argv, warnings, profileUsed: profile }
   }
 

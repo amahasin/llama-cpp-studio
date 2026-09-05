@@ -21,12 +21,25 @@
   // MTP/ subfolder (see unsloth/gemma-4-26B-A4B-it-qat-GGUF). llama.cpp takes
   // one as the draft model for speculative decoding.
   //
-  // Anchored on word boundaries so a model that merely has the letters in its
-  // name is not mistaken for a head file.
-  const MTP_RE = /(?:^|[^a-z0-9])mtp(?:[^a-z0-9]|$)/i
+  // Anchored at the start on purpose — "MTP" appears in the middle of plenty
+  // of model names as part of the model's own branding
+  // (Ornith-1.5-35B-A3B-APEX-MTP-I-Compact.gguf is a 17GB model), and matching
+  // it anywhere filed those as heads and hid them from the library.
+  const MTP_RE = /^mtp[-_. ]/i
 
   // Where a repository keeps its MTP heads when they are not beside the model.
   const MTP_SUBDIRS = ['MTP', 'mtp']
+
+  /**
+   * Whether a path names a head, by the two conventions repositories use: the
+   * `mtp-` prefix, or an MTP/ folder — where the folder makes the statement
+   * and the file inside need not repeat it.
+   */
+  function looksLikeMtpFile(pathOrName) {
+    const p = String(pathOrName || '').replace(/\\/g, '/')
+    const base = p.slice(p.lastIndexOf('/') + 1)
+    return MTP_RE.test(base) || /(^|\/)mtp\//i.test(p)
+  }
 
   // "unsloth/Qwen3-VL-8B-GGUF" -> "unsloth__Qwen3-VL-8B-GGUF"
   function repoFolder(repo) {
@@ -162,10 +175,9 @@
    * Returns the kind, or undefined for an ordinary model.
    */
   function companionKind(entry) {
-    // What the file says it is beats what it is called. "MTP" turns up in the
-    // middle of plenty of model names — Ornith-1.5-35B-A3B-APEX-MTP-I-Compact
-    // is a 17GB model, not a head — and filing one of those as a companion
-    // hides it from the library completely, with nothing to say why.
+    // What the file holds beats what it is called, in both directions: a model
+    // whose name happens to contain "MTP" is still a model, and a head is
+    // still a head however it was labelled when it was registered.
     const stated = kindFromMetadata(entry.metadata)
     if (stated !== undefined) return stated === 'model' ? undefined : stated
 
@@ -173,26 +185,40 @@
     if (entry.kind === 'model') return undefined
     const name = String(entry.name || util.basename(entry.path || ''))
     if (MMPROJ_RE.test(name)) return 'mmproj'
-    if (MTP_RE.test(name)) return 'mtp'
+    if (looksLikeMtpFile(entry.path || name)) return 'mtp'
     return undefined
   }
 
   /**
    * What an inspected GGUF is, from its own header.
    *
-   * Only two things here are conclusive. A projector announces itself as the
-   * `clip` architecture. And a file carrying a tokenizer is something that can
-   * answer a request on its own: a companion head holds a few extra layers and
-   * borrows the vocabulary of the model it rides with, so it has none.
+   * A projector announces itself as the `clip` architecture. For the rest, the
+   * question is whether the file has a body of its own or is only the head:
    *
-   * Anything else returns undefined and the caller falls back to the name,
-   * which is all there is for a file this app has not opened.
+   *   • a standalone head holds nothing but the layers it predicts with, so
+   *     its block count *is* its nextn layer count — gemma-4's head is 4 and 4;
+   *   • a model has its own transformer blocks, whether or not it also carries
+   *     a head built in — Qwen3.6 is 41 blocks to 1 nextn layer, and a model
+   *     with no head at all declares no nextn layers.
+   *
+   * An earlier version of this asked whether the file carried a tokenizer, on
+   * the reasoning that a head borrows the vocabulary of the model it rides
+   * with. That was wrong, and gemma-4's head disproves it: it ships a full
+   * `gemma4` tokenizer of its own. Counting layers is what actually separates
+   * the two.
+   *
+   * Anything the header does not settle returns undefined, and the caller
+   * falls back to the naming convention.
    */
   function kindFromMetadata(md) {
     if (!util.isPlainObject(md)) return undefined
     if (String(md.architecture || '').toLowerCase() === 'clip') return 'mmproj'
-    if (md.tokenizerModel !== undefined || md.vocabSize !== undefined) return 'model'
-    return undefined
+
+    const blocks = Number(md.blockCount)
+    if (!Number.isFinite(blocks) || blocks <= 0) return undefined
+    const nextn = Number(md.nextnPredictLayers)
+    if (Number.isFinite(nextn) && nextn > 0) return blocks === nextn ? 'mtp' : 'model'
+    return 'model'
   }
 
   function isProjector(entry) {
@@ -309,14 +335,18 @@
     // Windows treats MTP/ and mtp/ as one directory, so the same file would
     // otherwise be listed once per spelling.
     const seen = new Set()
-    const scan = async (where) => {
+    // Beside the model, only the `mtp-` prefix marks a head — everything else
+    // in that folder is a model or a projector. Inside an MTP/ folder the
+    // folder has already said it, so the file need not.
+    const scan = async (where, named) => {
       const items = await this.exec.listDir(where)
       if (items === undefined) return
       for (const it of items) {
         if (it.isDir === true) continue
         if (!/\.gguf$/i.test(it.name)) continue
         if (it.name.toLowerCase() === self) continue
-        if (!MTP_RE.test(it.name)) continue
+        if (named === true && !MTP_RE.test(it.name)) continue
+        if (MMPROJ_RE.test(it.name)) continue
         const full = util.joinPath(where, it.name)
         const key = full.toLowerCase()
         if (seen.has(key)) continue
@@ -325,8 +355,8 @@
       }
     }
 
-    await scan(dir)
-    for (const sub of MTP_SUBDIRS) await scan(util.joinPath(dir, sub))
+    await scan(dir, true)
+    for (const sub of MTP_SUBDIRS) await scan(util.joinPath(dir, sub), false)
 
     if (candidates.length === 0) return { ok: true, mtp: undefined, candidates: [] }
 
@@ -584,7 +614,7 @@
         path: String(f.path),
         size: Number(f.size) || 0,
         mmproj: MMPROJ_RE.test(String(f.path)),
-        mtp: MTP_RE.test(String(f.path)),
+        mtp: looksLikeMtpFile(f.path),
         lfs: f.lfs !== undefined ? !!f.lfs : undefined,
       }))
       .sort((a, b) => a.path.localeCompare(b.path))
@@ -933,5 +963,5 @@
   }
 
   LLAMA.modules.push('models')
-  LLAMA.models = { ModelManager, HEAD_LADDER, repoFolder, MMPROJ_RE, MTP_RE, companionKind }
+  LLAMA.models = { ModelManager, HEAD_LADDER, repoFolder, MMPROJ_RE, MTP_RE, companionKind, looksLikeMtpFile, kindFromMetadata }
 })(globalThis.LLAMA)

@@ -418,6 +418,29 @@ is attached to it, and a model that arrives after its head picks it up.
 head — the flag is read out of the GGUF, and their stored metadata predates it.
 Newly imported and downloaded models are detected automatically.
 
+### Telling a head from a model
+
+Both ship as `.gguf` beside each other, and neither the name nor the tokenizer
+settles it:
+
+- **Names lie in both directions.** `Ornith-1.5-35B-A3B-APEX-MTP-I-Compact.gguf`
+  is a 17 GB model whose branding contains "MTP"; `mtp-gemma-4-12b-it.gguf` is a
+  465 MB head. Only the `mtp-` *prefix* (or an `MTP/` folder) is a convention —
+  the letters appearing anywhere are not.
+- **A head can carry a tokenizer.** gemma-4's ships a full `gemma4` tokenizer
+  and a 262144-token vocabulary, exactly like the model it drafts for.
+
+What separates them is layer counts. A standalone head holds nothing but the
+layers it predicts with, so its block count *is* its nextn count — gemma-4's
+head is 4 and 4. A model has its own body: Qwen3.6 is 41 blocks to 1 nextn
+layer, and a model with no head declares no nextn layers at all. That is the
+test, with the naming convention as the fallback for a file that has not been
+inspected.
+
+Getting this wrong is quiet in both directions: a model filed as a head
+disappears from the library, and a head filed as a model is served on its own
+and stops drafting for the model it belongs to.
+
 ## When settings take effect
 
 Router mode serves every model from a preset file that the app generates from

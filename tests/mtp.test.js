@@ -117,32 +117,54 @@ async function main() {
     check('an explicit kind is respected over the name',
       kind({ name: 'mtp-thing.gguf', kind: 'model' }) === undefined)
 
-    // "MTP" turns up in the middle of real model names, and a model filed as a
-    // companion vanishes from the library with nothing to say why. A file that
-    // has been inspected is classified on what it holds: a tokenizer means it
-    // can answer a request on its own, so it is a model whatever it is called.
-    const servable = {
-      architecture: 'qwen35moe', blockCount: 41, tokenizerModel: 'gpt2',
-      vocabSize: 248320, hasChatTemplate: true, nextnPredictLayers: 1, hasMtp: true,
+    // Real files, both directions. "MTP" turns up in the middle of model
+    // names as branding, and a model filed as a companion vanishes from the
+    // library with nothing to say why; a head filed as a model gets served on
+    // its own and stops drafting for the model it belongs to.
+    //
+    // What separates them is layer counts, not names and not tokenizers. A
+    // standalone head holds nothing but the layers it predicts with, so its
+    // block count IS its nextn count. A model has its own body.
+    const ornith = {
+      architecture: 'qwen35moe', blockCount: 41, nextnPredictLayers: 1,
+      tokenizerModel: 'gpt2', vocabSize: 248320, hasMtp: true,
     }
     check('a model whose name contains MTP is still a model',
-      kind({ name: 'Ornith-1.5-35B-A3B-APEX-MTP-I-Compact.gguf', metadata: servable }) === undefined)
+      kind({ name: 'Ornith-1.5-35B-A3B-APEX-MTP-I-Compact.gguf', metadata: ornith }) === undefined)
     check('  even when it was already filed as a head',
-      kind({ name: 'Ornith-1.5-35B-A3B-APEX-MTP-I-Compact.gguf', kind: 'mtp', metadata: servable }) === undefined)
+      kind({ name: 'Ornith-1.5-35B-A3B-APEX-MTP-I-Compact.gguf', kind: 'mtp', metadata: ornith }) === undefined)
 
-    // A real head borrows the vocabulary of the model it rides with, so it has
-    // no tokenizer of its own and the name still decides.
-    const head = { architecture: 'gemma4', blockCount: 1, nextnPredictLayers: 1 }
-    check('a head with no tokenizer is still a head',
-      kind({ name: 'mtp-gemma-4-26B-A4B-it.gguf', metadata: head }) === 'mtp')
+    // gemma-4's head, exactly as it ships. It carries a full gemma4 tokenizer
+    // of its own, which is why "has a tokenizer" is not the question — asking
+    // it filed this head as a model, listed it in the library, and left the
+    // model it belongs to drafting with nothing.
+    const gemmaHead = {
+      architecture: 'gemma4-assistant', blockCount: 4, nextnPredictLayers: 4,
+      tokenizerModel: 'gemma4', vocabSize: 262144, hasMtp: true,
+    }
+    check('gemma-4\u2019s head is a head, tokenizer and all',
+      kind({ name: 'mtp-gemma-4-12b-it.gguf', metadata: gemmaHead }) === 'mtp')
+    check('  even labelled a model by a previous guess',
+      kind({ name: 'mtp-gemma-4-12b-it.gguf', kind: 'model', metadata: gemmaHead }) === 'mtp')
+
+    // The model it belongs to declares no nextn layers of its own.
+    check('and the model beside it is a model',
+      kind({
+        name: 'gemma-4-12b-it-Q4_K_M.gguf',
+        metadata: { architecture: 'gemma4', blockCount: 48, tokenizerModel: 'gemma4' },
+      }) === undefined)
 
     // A projector announces itself, so it needs no help from the name.
     check('a clip file is a projector however it is named',
       kind({ name: 'vision-tower.gguf', metadata: { architecture: 'clip', blockCount: 27 } }) === 'mmproj')
 
-    // Nothing inspected yet — the name is all there is, as before.
+    // Nothing inspected yet — the naming convention is all there is.
     check('an uninspected file falls back to its name',
       kind({ name: 'mtp-gemma-4-26B.gguf', metadata: undefined }) === 'mtp')
+    check('  and the prefix is what counts, not the letters anywhere',
+      kind({ name: 'Ornith-APEX-MTP-I-Compact.gguf', metadata: undefined }) === undefined)
+    check('  a head under an MTP/ folder needs no prefix',
+      kind({ name: 'gemma-4.gguf', path: 'C:/m/MTP/gemma-4.gguf', metadata: undefined }) === 'mtp')
   }
 
   // ---- the command line ----
@@ -225,6 +247,34 @@ async function main() {
     const plain = { path: 'C:/m/plain.gguf', name: 'plain.gguf', metadata: {} }
     const none = await server._resolveMtp({}, plain)
     check('a model with neither gets no spec type', none.specType === undefined)
+
+    // Speculative decoding with nothing to draft with is silence, not an
+    // error: llama.cpp accepts --spec-type draft-mtp and simply generates at
+    // the ordinary speed. It is easy to arrive at — turning MTP off withholds
+    // --spec-draft-model, while an extra argument can still put --spec-type
+    // back — and the result was a model that looked configured for MTP and
+    // was not using it.
+    {
+      const plain = { path: 'C:/m/gemma.gguf', name: 'gemma.gguf', metadata: { hasMtp: false }, profile: {} }
+      const forced = LLAMA.commandBuilder.build(plain, { capabilities: allCaps(), backend: 'cpu' },
+        { host: '127.0.0.1', port: 8080 }, { extraArgs: ['--spec-type', 'draft-mtp'] })
+      check('asking for MTP with no head to draft with is called out',
+        (forced.warnings || []).some(function (w) { return /no head to draft with/.test(w) }),
+        JSON.stringify(forced.warnings))
+
+      const wired = LLAMA.commandBuilder.build(plain, { capabilities: allCaps(), backend: 'cpu' },
+        { host: '127.0.0.1', port: 8080 }, { specType: 'draft-mtp', draftModel: 'C:/m/mtp-gemma.gguf' })
+      check('  and a head that is actually wired up is not',
+        !(wired.warnings || []).some(function (w) { return /no head to draft with/.test(w) }),
+        JSON.stringify(wired.warnings))
+
+      const builtIn = { path: 'C:/m/q.gguf', name: 'q.gguf', metadata: { hasMtp: true }, profile: {} }
+      const inside = LLAMA.commandBuilder.build(builtIn, { capabilities: allCaps(), backend: 'cpu' },
+        { host: '127.0.0.1', port: 8080 }, { specType: 'draft-mtp' })
+      check('  nor is a head built into the model file',
+        !(inside.warnings || []).some(function (w) { return /no head to draft with/.test(w) }),
+        JSON.stringify(inside.warnings))
+    }
 
     // llama.cpp ignores a draft model unless --spec-type says to use it, so the
     // separate-file case has to set it too.
