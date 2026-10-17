@@ -27,6 +27,7 @@
 const crypto = require('node:crypto')
 
 const { sendJson, readBody } = require('./respond.js')
+const { apiKeyOf } = require('../lib/settings.js')
 
 const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1'])
@@ -142,13 +143,7 @@ function createGate(deps) {
 
   /** The key that opens the door, or undefined when none is set. */
   function requiredKey() {
-    try {
-      const cfg = manager && manager.config ? manager.config.get('server') : undefined
-      const key = cfg && cfg.apiKey
-      return typeof key === 'string' && key !== '' ? key : undefined
-    } catch (_e) {
-      return undefined
-    }
+    return apiKeyOf(manager)
   }
 
   /**

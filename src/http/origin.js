@@ -61,7 +61,22 @@ function createOriginPolicy(options) {
     return url.hostname === host
       || url.hostname === 'localhost'
       || url.hostname === '127.0.0.1'
-      || host === '0.0.0.0'
+  }
+
+  /**
+   * The page this app served, calling back to the address it was loaded from.
+   *
+   * A wildcard bind (0.0.0.0, ::) used to count every origin as local, because
+   * there is no single address to compare a LAN client's origin against. That
+   * admitted any website: a page on the internet could read the shell — and the
+   * session token in it — from a Studio bound to 0.0.0.0 through the visitor's
+   * own browser, then drive the RPC route with it. The address the request was
+   * sent to is the one to compare against, and it is right for every bind:
+   * a phone on the LAN, a tunnel that keeps the public Host, a specific IP.
+   */
+  function isSameOrigin(url, req) {
+    const requested = String(req.headers.host || '').toLowerCase()
+    return requested !== '' && url.host.toLowerCase() === requested
   }
 
   return {
@@ -75,7 +90,7 @@ function createOriginPolicy(options) {
       } catch (_e) {
         return false
       }
-      if (isLocal(url)) return true
+      if (isLocal(url) || isSameOrigin(url, req)) return true
 
       const setting = String(allowedOrigins() || '').trim()
       if (setting === '*') {

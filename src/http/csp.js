@@ -6,6 +6,8 @@
 // nothing and stops an injected string from becoming a script.
 'use strict'
 
+const { serverSettings } = require('../lib/settings.js')
+
 // The UI evaluates the plugin's client bundle with `new Function`, which is the
 // whole architecture: the bundle is fetched from this origin and run against
 // injected services. That needs 'unsafe-eval'. It does NOT need
@@ -45,13 +47,7 @@ function originOf(url) {
 /** Frame sources beyond the local ones, from the llama-server settings. */
 function configuredFrames(manager) {
   const out = []
-  let cfg
-  try {
-    cfg = manager && manager.config ? manager.config.get('server') : undefined
-  } catch (_e) {
-    return out
-  }
-  if (!cfg) return out
+  const cfg = serverSettings(manager)
   if (cfg.host && cfg.port) {
     const scheme = cfg.sslCertFile ? 'https' : 'http'
     const origin = originOf(scheme + '://' + cfg.host + ':' + cfg.port)

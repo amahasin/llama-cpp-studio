@@ -14,6 +14,8 @@ const path = require('node:path')
 const crypto = require('node:crypto')
 
 const { WEB_DIR } = require('./lib/layout.js')
+const { serverSettings } = require('./lib/settings.js')
+const { localUrl, networkUrls } = require('./lib/net.js')
 const { createOriginPolicy } = require('./http/origin.js')
 const { createRouter } = require('./http/routes.js')
 
@@ -22,22 +24,21 @@ const TOKEN_BYTES = 24
 // Addresses that keep the server on this machine only.
 const LOOPBACK = ['127.0.0.1', 'localhost', '::1']
 
-/** The remote-access allow-list, read from config on every request. */
+/**
+ * The remote-access allow-list, read from config on every request. Unreadable
+ * settings read as empty, which admits no remote origin.
+ */
 function allowedOriginsOf(manager) {
-  return function () {
-    try {
-      if (manager && manager.config) {
-        const server = manager.config.get('server')
-        return (server && server.allowedOrigins) || ''
-      }
-    } catch (_e) { /* settings unreadable: no remote origin is allowed */ }
-    return ''
-  }
+  return function () { return serverSettings(manager).allowedOrigins || '' }
 }
 
 /**
  * options: { manager, host, port, log, version }
- * Returns { server, port, token, url, close() }.
+ * Returns { server, port, token, url, networkUrls, close() }.
+ *
+ * `url` is always somewhere this machine can open — 127.0.0.1 for a wildcard
+ * bind, bracketed for IPv6 — and `networkUrls` lists what other devices on the
+ * network would type, when the bind reaches them at all.
  */
 async function startServer(options) {
   const opts = options || {}
@@ -74,7 +75,8 @@ async function startServer(options) {
     server,
     port,
     token,
-    url: 'http://' + host + ':' + port + '/',
+    url: localUrl(host, port),
+    networkUrls: networkUrls(host, port),
     close() {
       return new Promise(function (resolve) { server.close(function () { resolve() }) })
     },

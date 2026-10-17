@@ -44,15 +44,25 @@ function isBusy(server) {
     || Number(server.slotsProcessing) > 0
 }
 
+/** A timeout in minutes as a usable number: anything that is not positive is off. */
+function toMinutes(value) {
+  const n = Number(value)
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
+
 /**
  * options: {
  *   manager,                the booted manager
- *   minutes,                idle timeout; 0 or less disables the whole thing
+ *   minutes,                idle timeout; 0 or less disables the whole thing.
+ *                           Either a number, fixed for the life of the
+ *                           supervisor (--idle-unload), or a function read on
+ *                           every tick (the saved setting), so a change made in
+ *                           Server Config applies without a restart
  *   log(message),           optional
  *   now(),                  optional clock, for tests
  *   pollMs,                 optional
  * }
- * Returns { start(), stop(), tick(), idleMs() }.
+ * Returns { start(), stop(), tick(), idleMs(), enabled, minutes, armed }.
  *
  * tick() is separate from start() so the behaviour can be tested against a
  * clock that does not take half an hour to move.
@@ -62,12 +72,18 @@ function createIdleUnloader(options) {
   const log = options.log || function () {}
   const now = options.now || function () { return Date.now() }
   const pollMs = options.pollMs || DEFAULT_POLL_MS
-  const minutes = Number(options.minutes) || 0
-  const idleLimitMs = minutes * MS_PER_MINUTE
+  const live = typeof options.minutes === 'function'
+  const readMinutes = live
+    ? function () {
+      try { return toMinutes(options.minutes()) } catch (_e) { return 0 }
+    }
+    : (function (fixed) { return function () { return fixed } })(toMinutes(options.minutes))
 
   let lastActiveAt = now()
   let lastFingerprint
   let timer
+  // What the last tick ran with, so a change is said once rather than polled.
+  let lastMinutes = readMinutes()
 
   async function cmd(method, args) {
     try {
@@ -79,7 +95,7 @@ function createIdleUnloader(options) {
   }
 
   /** Free the model, by whichever route this mode allows. */
-  async function unload(server) {
+  async function unload(server, minutes) {
     if (server.mode === 'router') {
       const listed = await cmd('server.models')
       const loaded = ((listed && listed.models) || []).filter(function (m) {
@@ -111,7 +127,23 @@ function createIdleUnloader(options) {
    * assert on and what the log line is built from.
    */
   async function tick() {
-    if (idleLimitMs <= 0) return { action: 'disabled' }
+    const minutes = readMinutes()
+    if (minutes !== lastMinutes) {
+      log(minutes > 0
+        ? 'idle unload: models are now released after ' + minutes + ' minutes without a request'
+        : 'idle unload turned off')
+      lastMinutes = minutes
+      // Whatever idle time had built up was measured against the old limit.
+      lastActiveAt = now()
+    }
+    if (minutes <= 0) {
+      // Off: hold no idle clock, so turning it on later starts from zero rather
+      // than unloading on the very next tick.
+      lastActiveAt = now()
+      lastFingerprint = undefined
+      return { action: 'disabled' }
+    }
+    const idleLimitMs = minutes * MS_PER_MINUTE
 
     const status = await cmd('server.status')
     const server = (status && status.server) || undefined
@@ -142,7 +174,7 @@ function createIdleUnloader(options) {
     const idleMs = now() - lastActiveAt
     if (idleMs < idleLimitMs) return { action: 'waiting', idleMs }
 
-    const result = await unload(server)
+    const result = await unload(server, minutes)
     // Whatever happened, do not try again until something moves: a failed
     // unload retried every 30 seconds is a log full of the same line.
     lastActiveAt = now()
@@ -150,16 +182,26 @@ function createIdleUnloader(options) {
   }
 
   return {
+    /**
+     * Arm the poll. A fixed timeout of 0 arms nothing — it can never change.
+     * A live one is always armed, because the setting can be switched on later
+     * and a tick that finds it off costs no more than reading it.
+     */
     start() {
-      if (timer !== undefined || idleLimitMs <= 0) return
+      if (timer !== undefined) return
+      const minutes = readMinutes()
+      if (!live && minutes <= 0) return
       lastActiveAt = now()
+      lastMinutes = minutes
       timer = setInterval(function () {
         tick().catch(function (err) {
           log('idle check failed: ' + String(err && err.message ? err.message : err))
         })
       }, pollMs)
       if (typeof timer.unref === 'function') timer.unref()
-      log('idle unload armed: models are released after ' + minutes + ' minutes without a request')
+      if (minutes > 0) {
+        log('idle unload armed: models are released after ' + minutes + ' minutes without a request')
+      }
     },
     stop() {
       if (timer === undefined) return
@@ -168,9 +210,13 @@ function createIdleUnloader(options) {
     },
     tick,
     idleMs() { return now() - lastActiveAt },
-    enabled: idleLimitMs > 0,
-    minutes,
+    get enabled() { return readMinutes() > 0 },
+    get minutes() { return readMinutes() },
+    /** Whether start() left a poll running. */
+    get armed() { return timer !== undefined },
   }
 }
 
-module.exports = { createIdleUnloader, activityFingerprint, isBusy, MS_PER_MINUTE, DEFAULT_POLL_MS }
+module.exports = {
+  createIdleUnloader, activityFingerprint, isBusy, toMinutes, MS_PER_MINUTE, DEFAULT_POLL_MS,
+}

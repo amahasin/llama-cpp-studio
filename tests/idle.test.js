@@ -167,7 +167,56 @@ async function main() {
     clock.advance(24 * 60 * MINUTE)
     check('0 minutes disables it', (await idle.tick()).action === 'disabled')
     check('without asking the manager anything at all', manager.calls.length === 0)
-    check('and start() arms no timer', idle.enabled === false)
+    check('and reports itself disabled', idle.enabled === false)
+    idle.start()
+    check('and start() arms no timer', idle.armed === false)
+    idle.stop()
+  }
+
+  // ---- the saved setting is read live ----
+  {
+    const clock = fakeClock()
+    const manager = stubManager()
+    let saved = 0
+    const lines = []
+    const idle = createIdleUnloader({
+      manager, minutes() { return saved }, now: clock.now, log(m) { lines.push(m) },
+    })
+    check('a live timeout of 0 starts off', (await idle.tick()).action === 'disabled')
+    check('and reports itself disabled', idle.enabled === false)
+
+    // Turned on in Server Config while the app runs — no restart.
+    clock.advance(5 * 60 * MINUTE)
+    saved = 30
+    check('turning it on takes effect on the next tick', (await idle.tick()).action === 'active')
+    check('and says so once', lines.filter(function (l) { return l.indexOf('now released after 30') !== -1 }).length === 1)
+    check('hours spent off do not count as idle', (await idle.tick()).action === 'waiting')
+    clock.advance(31 * MINUTE)
+    check('then it unloads on the new timeout', (await idle.tick()).action === 'unloaded')
+
+    // Shortened while a model is idle: the clock restarts against the new limit.
+    manager.state.routerModels = [{ id: 'qwen', state: 'loaded' }]
+    manager.state.metrics = Object.assign({}, manager.state.metrics, { decodeCalls: 99 })
+    await idle.tick()
+    clock.advance(20 * MINUTE)
+    saved = 10
+    check('a shorter timeout restarts the idle clock', (await idle.tick()).action === 'waiting')
+    clock.advance(11 * MINUTE)
+    check('and applies from there', (await idle.tick()).action === 'unloaded')
+
+    saved = 0
+    check('turning it off stops it at once', (await idle.tick()).action === 'disabled')
+    check('and says so', lines.some(function (l) { return l === 'idle unload turned off' }))
+  }
+  {
+    const manager = stubManager()
+    const idle = createIdleUnloader({ manager, minutes() { return 0 }, pollMs: 60 * 60 * 1000, log() {} })
+    idle.start()
+    check('a live supervisor arms even while off, so it can be switched on', idle.armed === true)
+    idle.stop()
+    check('and stop() disarms it', idle.armed === false)
+    const thrown = createIdleUnloader({ manager, minutes() { throw new Error('unreadable') }, log() {} })
+    check('a setting that cannot be read means off, not a crash', (await thrown.tick()).action === 'disabled')
   }
 
   // ---- a failure does not become a log flood ----

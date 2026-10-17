@@ -88,6 +88,7 @@ function stubManager(options) {
           : { state: 'RUNNING', host: '127.0.0.1', port: o.port }
       },
       routerLoaded() { return o.loaded || [] },
+      isModelUnloaded(id) { return (o.unloaded || []).includes(id) },
     },
     async cmd() { return { ok: true } },
   }
@@ -183,6 +184,22 @@ async function main() {
       const seen = upstream.seen[upstream.seen.length - 1]
       check('the prefix is still stripped, query and all',
         seen.url === '/props?model=gemma', seen.url)
+    }
+
+    // ---- an explicitly unloaded model rejects GET probes to prevent autoload loops ----
+    {
+      const studioUnloaded = await startServer({
+        manager: stubManager({ port: upstream.port, unloaded: ['unloaded-model'] }),
+        host: '127.0.0.1', port: 0, version: 'test',
+        log() {},
+      })
+      const uBase = studioUnloaded.url.replace(/\/$/, '')
+      const uAuth = { 'x-llama-token': studioUnloaded.token }
+      const res = await fetch(uBase + '/props?model=unloaded-model', { headers: uAuth })
+      check('a GET naming an unloaded model returns 400', res.status === 400, String(res.status))
+      const json = await res.json()
+      check('and explains that the model is unloaded', json.error && json.error.message.includes('unloaded'), JSON.stringify(json))
+      await studioUnloaded.close()
     }
 
     // ---- a model switch the user did not ask for is worth saying out loud ----

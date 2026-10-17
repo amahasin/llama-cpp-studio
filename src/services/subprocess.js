@@ -12,16 +12,22 @@
 'use strict'
 
 const { spawn } = require('node:child_process')
+const { StringDecoder } = require('node:string_decoder')
 
 const IS_WINDOWS = process.platform === 'win32'
 
 function createCollector(maxBytes) {
   const cap = maxBytes === undefined ? 1024 * 1024 : maxBytes
+  // A pipe hands over whatever bytes are ready, which can end halfway through
+  // a multi-byte character. Decoding each chunk on its own turned the two
+  // halves of an é or a CJK model name into a pair of U+FFFD; the decoder
+  // holds the partial character back until the rest arrives.
+  const decoder = new StringDecoder('utf8')
   let text = ''
   let dropped = 0
   return {
     push(buf) {
-      text += buf.toString('utf8')
+      text += decoder.write(buf)
       if (text.length > cap) {
         dropped += text.length - cap
         text = text.slice(-cap)
@@ -126,4 +132,4 @@ function createSubprocessService(options) {
   return service
 }
 
-module.exports = { createSubprocessService }
+module.exports = { createSubprocessService, createCollector }

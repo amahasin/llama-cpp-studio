@@ -51,8 +51,13 @@ function runtimeLine(versions) {
       : ''))
 }
 
+/** Where a phone on the same network finds the UI, for a wildcard bind. */
+function networkLines(urls) {
+  return (urls || []).map(function (url, i) { return line(i === 0 ? 'On network' : '', url) })
+}
+
 /**
- * fields: { version, url, dataDir, status, routerStartError }
+ * fields: { version, url, networkUrls, dataDir, status, routerStartError }
  * `status` is the manager's own status payload.
  */
 function statusBanner(fields) {
@@ -62,6 +67,7 @@ function statusBanner(fields) {
   return [''].concat(
     [title(fields.version)],
     [line('Web UI', fields.url)],
+    networkLines(fields.networkUrls),
     serverLines(status.server || {}, fields.routerStartError),
     [line('Data', fields.dataDir)],
     [runtimeLine(status.versions || {})],

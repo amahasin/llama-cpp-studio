@@ -5,11 +5,10 @@
 // independent of each other and read better that way.
 'use strict'
 
-const fs = require('node:fs')
 const path = require('node:path')
 
 const { WEB_DIR, clientBundlePath } = require('../lib/layout.js')
-const { MIME, sendJson, sendText, sendFile, notFound, readBody } = require('./respond.js')
+const { MIME, sendJson, sendText, sendStatic, isFile, notFound, readBody } = require('./respond.js')
 const { contentSecurityPolicy } = require('./csp.js')
 const { createProxy } = require('./proxy.js')
 const { createGate, LOGIN_PATH } = require('./gate.js')
@@ -97,20 +96,22 @@ function createRouter(deps) {
     // covers everything a URL can reach.
     if (rel === CLIENT_BUNDLE) {
       const bundle = clientBundlePath()
-      if (!fs.existsSync(bundle)) {
+      if (!isFile(bundle)) {
         sendText(res, 500, 'client bundle missing — run: node build.js')
         return
       }
-      sendFile(res, bundle, MIME['.js'])
+      sendStatic(req, res, bundle, MIME['.js'])
       return
     }
 
+    // Files only: a directory (`/assets/vendor`) used to pass the existence
+    // check and then fail in readFileSync, answering 500 with the error text.
     const file = path.join(WEB_DIR, rel)
-    if (!file.startsWith(WEB_DIR + path.sep) || !fs.existsSync(file)) {
+    if (!file.startsWith(WEB_DIR + path.sep) || !isFile(file)) {
       notFound(res)
       return
     }
-    sendFile(res, file)
+    sendStatic(req, res, file)
   }
 
   /**

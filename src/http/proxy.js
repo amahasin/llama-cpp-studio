@@ -24,6 +24,8 @@
 const http = require('node:http')
 
 const { sendJson } = require('./respond.js')
+const { serverSettings, apiKeyOf } = require('../lib/settings.js')
+const { dialHost, urlHost } = require('../lib/net.js')
 
 const PREFIX = '/llama'
 
@@ -36,12 +38,6 @@ const HOP_BY_HOP = new Set([
   'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
   'te', 'trailer', 'transfer-encoding', 'upgrade',
 ])
-
-/** Where to actually connect. A server bound to a wildcard is reached locally. */
-function dialHost(host) {
-  if (host === '0.0.0.0' || host === '::' || host === undefined || host === '') return '127.0.0.1'
-  return host
-}
 
 function filterHeaders(headers) {
   const out = {}
@@ -68,28 +64,14 @@ function createProxy(deps) {
     } catch (_e) {
       status = undefined
     }
-    let cfg
-    try {
-      cfg = manager && manager.config ? manager.config.get('server') : undefined
-    } catch (_e) {
-      cfg = undefined
-    }
     if (status && status.state === 'RUNNING' && status.port) {
       return { host: dialHost(status.host), port: status.port, running: true }
     }
-    if (cfg && cfg.port) {
+    const cfg = serverSettings(manager)
+    if (cfg.port) {
       return { host: dialHost(cfg.host), port: cfg.port, running: false }
     }
     return undefined
-  }
-
-  function apiKey() {
-    try {
-      const cfg = manager && manager.config ? manager.config.get('server') : undefined
-      return cfg && cfg.apiKey ? cfg.apiKey : undefined
-    } catch (_e) {
-      return undefined
-    }
   }
 
   /** Whether this path should be forwarded rather than served by this app. */
@@ -166,6 +148,25 @@ function createProxy(deps) {
     }
   }
 
+  function isModelUnloaded(wanted) {
+    if (!manager || !manager.server) return false
+    try {
+      if (typeof manager.server.isModelUnloaded === 'function') {
+        return manager.server.isModelUnloaded(wanted)
+      }
+      return false
+    } catch (_e) {
+      return false
+    }
+  }
+
+  /** Tell the server a request is about to load this model on purpose. */
+  function markWanted(model) {
+    if (!model || !manager || !manager.server) return
+    if (typeof manager.server.markModelWanted !== 'function') return
+    try { manager.server.markModelWanted(model) } catch (_e) { /* advisory only */ }
+  }
+
   function handle(req, res, url) {
     const t = target()
     if (t === undefined) {
@@ -183,15 +184,38 @@ function createProxy(deps) {
       return
     }
 
+    // A request that names a model in the query loads it if it is not resident:
+    // in router mode `GET /props?model=X` loads X. That is llama.cpp's design
+    // and the frame relies on it, so it is forwarded as sent — and noted.
+    // However, if the model has been explicitly unloaded, read-only GET probes
+    // (such as telemetry polls or background iframe probes) must NEVER trigger
+    // an on-demand reload. Decided before anything is opened upstream, so a
+    // refused probe costs llama-server nothing.
+    if (url.searchParams.has('model')) {
+      const wanted = url.searchParams.get('model')
+      if (req.method === 'GET' && wanted && isModelUnloaded(wanted)) {
+        sendJson(res, 400, {
+          error: {
+            code: 400,
+            message: 'model ' + wanted + ' is unloaded',
+            type: 'invalid_request_error',
+          },
+        })
+        return
+      }
+      if (req.method === 'POST') markWanted(wanted)
+      noteModelSwitch(wanted)
+    }
+
     const headers = filterHeaders(req.headers)
     // The upstream sees its own address, not ours, and never our session cookie.
-    headers.host = t.host + ':' + t.port
+    headers.host = urlHost(t.host) + ':' + t.port
     delete headers.cookie
     delete headers.origin
     delete headers.referer
     // Added here so the embedded UI does not have to know the key — and cannot
     // be used to read it back out.
-    const key = apiKey()
+    const key = apiKeyOf(manager)
     if (key !== undefined) headers.authorization = 'Bearer ' + key
     // llama.cpp ships its web UI as a single pre-gzipped asset and has no
     // uncompressed copy to fall back on: ask it for `identity` and it answers
@@ -232,21 +256,22 @@ function createProxy(deps) {
     // A client that goes away must not leave a request hanging upstream.
     res.on('close', function () { upstream.destroy() })
 
-    // A request that names a model in the query loads it if it is not resident:
-    // in router mode `GET /props?model=X` loads X. That is llama.cpp's design
-    // and the frame relies on it, so it is forwarded as sent — and noted.
-    if (url.searchParams.has('model')) noteModelSwitch(url.searchParams.get('model'))
-
     // One path is read on the way through rather than piped: an explicit load
     // names its model in the body, and the body is a few bytes.
     if (req.method === 'POST' && /\/models\/load$/.test(url.pathname)) {
-      let body = ''
+      const head = []
+      let headBytes = 0
       req.on('data', function (c) {
-        if (body.length < 4096) body += c
+        if (headBytes < 4096) {
+          head.push(c)
+          headBytes += c.length
+        }
         upstream.write(c)
       })
       req.on('end', function () {
-        noteModelSwitch(modelInBody(body))
+        const m = modelInBody(Buffer.concat(head).toString('utf8'))
+        markWanted(m)
+        noteModelSwitch(m)
         upstream.end()
       })
       return

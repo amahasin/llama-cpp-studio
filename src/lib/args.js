@@ -21,13 +21,17 @@ const AS_PATH = function (v) { return path.resolve(String(v)) }
  *   values: { '--y': { key, coerce } , … }                  take the next argv item
  * }
  * Returns the defaults with every recognised option applied, plus `unknown`:
- * the arguments that matched nothing, in the order they were given.
+ * the arguments that matched nothing, in the order they were given, and
+ * `missing`: value options that came last with nothing after them. Those used
+ * to be coerced from `undefined`, so `--port` alone became port NaN and failed
+ * somewhere deep in listen() instead of at the command line.
  */
 function parseArgs(argv, spec) {
   const flags = spec.flags || {}
   const values = spec.values || {}
   const out = Object.assign({}, spec.defaults)
   const unknown = []
+  const missing = []
 
   function applyFlag(def) {
     if (def.set !== undefined) Object.assign(out, def.set)
@@ -42,6 +46,10 @@ function parseArgs(argv, spec) {
       continue
     }
     if (values[arg] !== undefined) {
+      if (i + 1 >= argv.length) {
+        missing.push(arg)
+        continue
+      }
       const def = values[arg]
       out[def.key] = (def.coerce || AS_STRING)(argv[++i])
       continue
@@ -58,6 +66,7 @@ function parseArgs(argv, spec) {
   }
 
   out.unknown = unknown
+  out.missing = missing
   return out
 }
 

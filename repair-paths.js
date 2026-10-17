@@ -65,6 +65,10 @@ function main() {
     console.error('unknown option: ' + args.unknown[0])
     process.exit(2)
   }
+  if (args.missing.length > 0) {
+    console.error(args.missing[0] + ' needs a value')
+    process.exit(2)
+  }
   if (args.help) {
     console.log(HELP)
     return 0

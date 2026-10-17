@@ -16,6 +16,7 @@ const endpoint = require('./cli/endpoint.js')
 const { statusBanner } = require('./cli/banner.js')
 const { openBrowser } = require('./cli/browser.js')
 const { createIdleUnloader } = require('./idle.js')
+const { serverSettings } = require('./lib/settings.js')
 
 const VERSION = require('../package.json').version
 
@@ -50,8 +51,7 @@ function bindFailure(err, args) {
  * than thrown — the app itself is fine, and the UI can start it by hand.
  */
 async function autostartRouter(manager, wanted) {
-  const configured = manager.config ? manager.config.get('server') : {}
-  if (wanted === false || (configured && configured.autostart === false)) return undefined
+  if (wanted === false || serverSettings(manager).autostart === false) return undefined
   try {
     const res = await manager.cmd('server.start', { mode: 'router' })
     return res.ok ? undefined : (res.message || res.code)
@@ -61,13 +61,15 @@ async function autostartRouter(manager, wanted) {
 }
 
 /**
- * Release a model that nobody is using. The timeout comes from Server Config
- * unless --idle-unload overrode it; 0 turns it off. Returns the supervisor so
- * shutdown can stop its timer.
+ * Release a model that nobody is using. The timeout comes from Server Config,
+ * read on every check so a change there applies at once, unless --idle-unload
+ * pinned it for this run; 0 turns it off. Returns the supervisor so shutdown
+ * can stop its timer.
  */
 function startIdleUnloader(manager, override, log) {
-  const configured = manager.config ? (manager.config.get('server') || {}) : {}
-  const minutes = override === undefined ? configured.idleUnloadMinutes : override
+  const minutes = override === undefined
+    ? function () { return serverSettings(manager).idleUnloadMinutes }
+    : override
   const unloader = createIdleUnloader({ manager, minutes, log })
   unloader.start()
   return unloader
@@ -114,8 +116,9 @@ async function main() {
   if (args.help) { console.log(options.helpText(VERSION)); return }
   if (args.version) { console.log(VERSION); return }
   if (!requireSupportedPlatform()) { process.exitCode = 1; return }
-  if (args.unknown.length > 0) {
-    console.error('unknown option: ' + args.unknown[0] + '\n')
+  const problems = options.validate(args)
+  if (problems.length > 0) {
+    console.error(problems.join('\n') + '\n')
     console.error(options.helpText(VERSION))
     process.exitCode = 1
     return
@@ -157,6 +160,7 @@ async function main() {
   console.log(statusBanner({
     version: VERSION,
     url: http.url,
+    networkUrls: http.networkUrls,
     dataDir: booted.dataDir,
     status: await manager.cmd('status', {}),
     routerStartError,
