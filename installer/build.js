@@ -275,7 +275,8 @@ function main() {
   fs.mkdirSync(DIST, { recursive: true })
   for (const stale of fs.readdirSync(DIST)) {
     if (/^llama-cpp-studio-.*(-setup\.exe|-win-x64\.zip)$/.test(stale) || stale === 'SHA256SUMS.txt') {
-      fs.rmSync(path.join(DIST, stale), { force: true })
+      // An antivirus scan of the exe the last build wrote can hold it for a moment.
+      fs.rmSync(path.join(DIST, stale), { force: true, maxRetries: 20, retryDelay: 250 })
     }
   }
   powershell(['-File', zipScript, '-Source', STAGE, '-Target', payload, '-Prefix', ''])

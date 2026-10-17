@@ -4,6 +4,7 @@
   "private": true,
   "type": "commonjs",
   "description": "Standalone local application for llama.cpp: install official builds, manage GGUF models and their launch flags, run llama-server and use its OpenAI-compatible API. Zero npm dependencies — built from the DeepSeek Harness llama.cpp plugin.",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/amahasin/llama-cpp-studio.git"

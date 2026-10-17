@@ -23,7 +23,7 @@ function planChecks() {
   const has = function (rel) { return plan.indexOf(rel) !== -1 }
 
   for (const rel of ['src/main.js', 'src/tray.ps1', 'src/update.ps1', 'runtime/host/boot.js',
-    'runtime/client.bundle.js', 'web/index.html', 'web/fluent.css', 'package.json', 'start.cmd']) {
+    'runtime/client.bundle.js', 'web/index.html', 'web/fluent.css', 'package.json', 'start.cmd', 'LICENSE']) {
     check('ships ' + rel, has(rel))
   }
   for (const vendored of ['web/vendor/react.production.min.js', 'web/vendor/react-dom.production.min.js']) {

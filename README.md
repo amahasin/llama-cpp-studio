@@ -896,3 +896,11 @@ shell that does not exist.
 The service layer itself is portable; a real port means providing equivalents
 for those helpers in `runtime/host/modules/exec.js` — which is vendored code,
 so see `runtime/host/VENDORED.md` first.
+
+## License
+
+[MIT](LICENSE). The release bundles third-party code under its own terms: the
+React 18 UMD builds in `web/vendor/` (MIT, Meta Platforms, Inc.) and the Node.js
+runtime in `runtime/node.exe` (MIT, Node.js contributors). The llama.cpp builds
+the app downloads for you come from the llama.cpp project's own releases, under
+its MIT license.
