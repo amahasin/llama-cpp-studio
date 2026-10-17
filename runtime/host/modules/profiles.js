@@ -5,6 +5,7 @@
   'use strict'
 
   const util = LLAMA.util
+  const security = LLAMA.security
 
   // A model's advertised context can be 128K-1M tokens; allocating that much
   // KV cache by default exhausts VRAM long before the weights do, so the
@@ -53,6 +54,7 @@
     alias: 'string', extraArgs: 'array', metrics: 'bool',
 
     // ---- core & hardware ----
+    rpc: 'string', splitMode: 'string',
     tensorSplit: 'string', mainGpu: 'int', noKvOffload: 'bool', numa: 'string',
     device: 'string', cpuMask: 'string',
     // ---- context & performance ----
@@ -124,6 +126,13 @@
     }
     if (profile.numa !== undefined && !['distribute', 'isolate', 'numactl'].includes(String(profile.numa))) {
       errors.push('numa must be distribute, isolate or numactl')
+    }
+    if (profile.splitMode !== undefined && !['none', 'layer', 'row', 'tensor'].includes(String(profile.splitMode))) {
+      errors.push('splitMode must be none, layer, row or tensor')
+    }
+    if (profile.rpc !== undefined && profile.rpc !== null && profile.rpc !== '') {
+      const vRpc = security.validateRpcServers(profile.rpc)
+      if (!vRpc.ok) errors.push(vRpc.message)
     }
     // --lora-scaled takes a file *and* a scale; one without the other is a
     // command line llama-server will reject.

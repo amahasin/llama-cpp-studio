@@ -118,6 +118,12 @@ function main() {
     /present: toast-warnings/.test(output)
     && /present: act-reports-warnings/.test(output)
     && /present: start-reports-warnings/.test(output))
+  check('cluster GPU pooling card and discovery controls are present in Server Config',
+    /present: cluster-card-render/.test(output)
+    && /present: cluster-state-helpers/.test(output)
+    && /present: cluster-stamp/.test(output)
+    && /present: cluster-form-init/.test(output)
+    && /present: cluster-save/.test(output))
 
   rebuildSection()
   return finish('bundle.test.js')

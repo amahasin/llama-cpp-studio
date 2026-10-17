@@ -51,6 +51,7 @@
   const CHANGES_LIBRARY = new Set([
     'models.import', 'models.download', 'models.delete', 'models.rescan',
     'models.saveSettings', 'models.resetSettings', 'models.addFlag',
+    'cluster.save', 'cluster.toggleNode', 'cluster.addNode', 'cluster.removeNode', 'cluster.discover',
   ])
   const CHANGES_BUILDS = new Set([
     'versions.install', 'versions.activate', 'versions.remove',
@@ -158,7 +159,9 @@
     // Diagnostics inspects the live server (isRunning/healthCheck), so it needs
     // the manager itself in its deps — not just the shared service bundle.
     serverDeps.server = this.server
+    this.monitoring.deps.server = this.server
     this.diagnostics = new LLAMA.diagnostics.Diagnostics(serverDeps)
+    this.discovery = new LLAMA.discovery.DiscoveryService({ exec: this.exec, log: (m) => this.log(m) })
     this.logsStore.start()
     this.startTelemetry()
     this.initialized = true
@@ -192,6 +195,9 @@
 
   Manager.prototype.dispose = async function () {
     this.stopTelemetry()
+    if (this.discovery && typeof this.discovery.dispose === 'function') {
+      try { this.discovery.dispose() } catch (_e) { /* noop */ }
+    }
     if (this.server) {
       try { await this.server.stop() } catch (_e) { /* noop */ }
     }
@@ -428,8 +434,8 @@
         case 'server.status': return { ok: true, server: this.server.status() }
         case 'server.routerPreview': return this.server.previewRouter(a)
         case 'server.models': return this.server.routerModels()
-        case 'server.loadModel': return this.server.loadModel(String(a.model || ''))
-        case 'server.unloadModel': return this.server.unloadModel(String(a.model || ''))
+        case 'server.loadModel': return this.server.loadModel(String(a.model || a.id || ''))
+        case 'server.unloadModel': return this.server.unloadModel(String(a.model || a.id || ''))
         case 'server.health': return this.server.healthCheck()
         // lines() returns { seq, lines } — the tool/RPC boundary contract is
         // { ok, ... } for every command, and the Logs page checks `ok`.
@@ -443,6 +449,14 @@
         case 'settings.get': return { ok: true, settings: this._safeSettings() }
         case 'settings.update': return this._updateSettings(a.patch)
         case 'settings.reveal': return this._revealSecret(a.section, a.key)
+
+        case 'cluster.status': return this._clusterStatus()
+        case 'cluster.ping': return this._clusterPing(a.host, a.port)
+        case 'cluster.save': return this._clusterSave(a.cluster)
+        case 'cluster.discover': return this._clusterDiscover(a)
+        case 'cluster.toggleNode': return this._clusterToggleNode(a.id || a.host, a.enabled)
+        case 'cluster.addNode': return this._clusterAddNode(a.node)
+        case 'cluster.removeNode': return this._clusterRemoveNode(a.id || a.host)
 
         case 'shell.pick': return this.exec.pickPath({
           mode: a.mode, title: a.title, startDir: a.startDir, filter: a.filter, fileName: a.fileName,
@@ -739,6 +753,209 @@
     return copy
   }
 
+  Manager.prototype._clusterStatus = function () {
+    const srv = this.config.get('server') || {}
+    const cluster = srv.cluster || { enabled: false, nodes: [], splitMode: 'layer' }
+    const rawNodes = Array.isArray(cluster.nodes) ? cluster.nodes : []
+    const discMap = this.discovery && this.discovery._discovered ? this.discovery._discovered : null
+    const nodes = rawNodes.map(function (n) {
+      const key = n.host + ':' + n.port
+      const disc = discMap ? discMap.get(key) : undefined
+      return Object.assign({}, n, {
+        online: disc && disc.online !== undefined ? disc.online : (n.online !== undefined ? n.online : undefined),
+        rttMs: disc && disc.rttMs !== undefined ? disc.rttMs : (n.rttMs !== undefined ? n.rttMs : undefined),
+        lastSeen: disc && disc.lastSeen ? disc.lastSeen : undefined,
+      })
+    })
+    const activeNodes = nodes.filter(function (n) {
+      return cluster.enabled && n.enabled !== false
+    })
+    const pooledVramMiB = 12288 + activeNodes.reduce(function (sum, n) {
+      return sum + (Number(n.vramMiB) || 12288)
+    }, 0)
+    return {
+      ok: true,
+      enabled: cluster.enabled === true,
+      splitMode: cluster.splitMode || 'layer',
+      tensorSplit: cluster.tensorSplit,
+      nodes,
+      activeCount: activeNodes.length,
+      totalNodes: nodes.length,
+      pooledVramMiB,
+    }
+  }
+
+  Manager.prototype._clusterPing = async function (host, port) {
+    const h = String(host || '').trim()
+    const p = parseInt(port, 10)
+    if (!h || Number.isNaN(p) || p < 1024 || p > 65535) {
+      return { ok: false, code: 'INVALID_TARGET', message: 'Host and valid port (1024-65535) are required.' }
+    }
+    const start = Date.now()
+    try {
+      let net
+      try {
+        net = require('node:net')
+      } catch (_e) {
+        // browser/mock environment
+      }
+      if (net && typeof net.createConnection === 'function') {
+        return await new Promise((resolve) => {
+          const socket = net.createConnection({ host: h, port: p, timeout: 2000 }, () => {
+            const rtt = Date.now() - start
+            socket.destroy()
+            resolve({ ok: true, online: true, rttMs: rtt })
+          })
+          socket.on('error', (err) => {
+            resolve({ ok: true, online: false, error: err.message, rttMs: Date.now() - start })
+          })
+          socket.on('timeout', () => {
+            socket.destroy()
+            resolve({ ok: true, online: false, error: 'Connection timed out', rttMs: Date.now() - start })
+          })
+        })
+      }
+      return { ok: true, online: true, rttMs: 0 }
+    } catch (err) {
+      return { ok: false, code: 'PING_FAILED', message: String(err && err.message) }
+    }
+  }
+
+  Manager.prototype._clusterSave = async function (cluster) {
+    if (!util.isPlainObject(cluster)) {
+      return { ok: false, code: 'INVALID_CLUSTER', message: 'cluster must be an object' }
+    }
+    return this._updateSettings({ server: { cluster } })
+  }
+
+  Manager.prototype._clusterDiscover = async function (options) {
+    if (!this.discovery) {
+      this.discovery = new LLAMA.discovery.DiscoveryService({ exec: this.exec, log: (m) => this.log(m) })
+    }
+    const discovered = await this.discovery.discover(options)
+    const srv = this.config.get('server') || {}
+    const cluster = util.deepClone(srv.cluster || { enabled: false, nodes: [], splitMode: 'layer' })
+    const existingNodes = Array.isArray(cluster.nodes) ? cluster.nodes : []
+
+    for (const disc of discovered) {
+      const existing = existingNodes.find(function (n) {
+        return n.host === disc.host && Number(n.port) === Number(disc.port)
+      })
+      if (existing) {
+        existing.online = true
+        existing.rttMs = disc.rttMs
+        if (disc.label && !existing.label) existing.label = disc.label
+        if (disc.gpu) existing.gpu = disc.gpu
+        if (disc.vramMiB) existing.vramMiB = disc.vramMiB
+      } else {
+        existingNodes.push({
+          id: disc.id,
+          host: disc.host,
+          port: disc.port,
+          label: disc.label || disc.hostname,
+          enabled: true,
+          gpu: disc.gpu,
+          vramMiB: disc.vramMiB,
+          online: true,
+          rttMs: disc.rttMs,
+        })
+      }
+    }
+    cluster.nodes = existingNodes
+    if (existingNodes.some(function (n) { return n.enabled !== false })) {
+      cluster.enabled = true
+    }
+    await this._updateSettings({ server: { cluster } })
+    return {
+      ok: true,
+      discovered,
+      cluster: this._clusterStatus(),
+    }
+  }
+
+  Manager.prototype._clusterToggleNode = async function (idOrHost, enabled) {
+    const target = String(idOrHost || '').trim()
+    if (!target) {
+      return { ok: false, code: 'INVALID_TARGET', message: 'Target node id or host is required' }
+    }
+    const srv = this.config.get('server') || {}
+    const cluster = util.deepClone(srv.cluster || { enabled: false, nodes: [], splitMode: 'layer' })
+    const nodes = Array.isArray(cluster.nodes) ? cluster.nodes : []
+    let found = false
+    for (const node of nodes) {
+      const key = node.host + ':' + node.port
+      if (node.id === target || node.host === target || key === target) {
+        node.enabled = enabled !== false
+        found = true
+        break
+      }
+    }
+    if (!found) {
+      return { ok: false, code: 'NODE_NOT_FOUND', message: 'Node not found: ' + target }
+    }
+    cluster.nodes = nodes
+    if (nodes.some(function (n) { return n.enabled !== false })) {
+      cluster.enabled = true
+    } else {
+      cluster.enabled = false
+    }
+    const res = await this._updateSettings({ server: { cluster } })
+    return Object.assign({ ok: true, cluster: this._clusterStatus() }, res)
+  }
+
+  Manager.prototype._clusterAddNode = async function (node) {
+    if (!util.isPlainObject(node) || !node.host) {
+      return { ok: false, code: 'INVALID_NODE', message: 'Node object with host is required' }
+    }
+    const srv = this.config.get('server') || {}
+    const cluster = util.deepClone(srv.cluster || { enabled: false, nodes: [], splitMode: 'layer' })
+    const nodes = Array.isArray(cluster.nodes) ? cluster.nodes : []
+    const port = Number(node.port) || 50052
+    const key = String(node.host).trim() + ':' + port
+    const idx = nodes.findIndex(function (n) {
+      return n.id === key || (n.host === String(node.host).trim() && Number(n.port) === port)
+    })
+    const entry = {
+      id: String(node.id || key).trim(),
+      host: String(node.host).trim(),
+      port,
+      label: node.label ? String(node.label).trim() : undefined,
+      enabled: node.enabled !== false,
+      gpu: node.gpu ? String(node.gpu).trim() : undefined,
+      vramMiB: Number(node.vramMiB) || 12288,
+    }
+    if (idx >= 0) {
+      nodes[idx] = Object.assign(nodes[idx], entry)
+    } else {
+      nodes.push(entry)
+    }
+    cluster.nodes = nodes
+    if (nodes.some(function (n) { return n.enabled !== false })) {
+      cluster.enabled = true
+    }
+    const res = await this._updateSettings({ server: { cluster } })
+    return Object.assign({ ok: true, cluster: this._clusterStatus() }, res)
+  }
+
+  Manager.prototype._clusterRemoveNode = async function (idOrHost) {
+    const target = String(idOrHost || '').trim()
+    if (!target) {
+      return { ok: false, code: 'INVALID_TARGET', message: 'Target node id or host is required' }
+    }
+    const srv = this.config.get('server') || {}
+    const cluster = util.deepClone(srv.cluster || { enabled: false, nodes: [], splitMode: 'layer' })
+    const nodes = (Array.isArray(cluster.nodes) ? cluster.nodes : []).filter(function (n) {
+      const key = n.host + ':' + n.port
+      return n.id !== target && n.host !== target && key !== target
+    })
+    cluster.nodes = nodes
+    if (!nodes.some(function (n) { return n.enabled !== false })) {
+      cluster.enabled = false
+    }
+    const res = await this._updateSettings({ server: { cluster } })
+    return Object.assign({ ok: true, cluster: this._clusterStatus() }, res)
+  }
+
   Manager.prototype._status = async function () {
     const parts = await Promise.all([
       this.versions.listInstalled(),
@@ -761,6 +978,7 @@
       home: this.home,
       settings: this._safeSettings(),
       server,
+      cluster: this._clusterStatus(),
       health: this.monitoring.current(),
       versions: parts[0],
       models: parts[1],

@@ -19,6 +19,9 @@ const { HOST_MODULES, HOST_DIR } = layout
  * loads them — the two halves stay identical by running the very same files.
  */
 function loadHostModules() {
+  if (typeof globalThis.require !== 'function' && typeof require === 'function') {
+    globalThis.require = require
+  }
   if (globalThis.LLAMA && globalThis.LLAMA.api) return globalThis.LLAMA
   for (const name of HOST_MODULES) {
     const code = fs.readFileSync(path.join(HOST_DIR, name), 'utf8')

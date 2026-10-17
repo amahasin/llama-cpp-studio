@@ -25,6 +25,7 @@ const HOST_MODULES = [
   'modules/server.js',
   'modules/monitoring.js',
   'modules/diagnostics.js',
+  'modules/discovery.js',
   'modules/api.js',
 ]
 

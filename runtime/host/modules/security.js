@@ -108,6 +108,33 @@
   }
 
   /**
+   * Validate a comma-separated list of RPC servers (host:port).
+   */
+  function validateRpcServers(raw) {
+    if (raw === undefined || raw === null) return { ok: true, servers: undefined }
+    const s = String(raw).trim()
+    if (s.length === 0) return { ok: true, servers: undefined }
+    if (CONTROL_CHARS.test(s) || /\s/.test(s)) {
+      return { ok: false, code: 'BAD_RPC_CHARS', message: 'RPC servers list contains whitespace or control characters.' }
+    }
+    const parts = s.split(',').filter(Boolean)
+    if (parts.length === 0) return { ok: true, servers: undefined }
+    for (const part of parts) {
+      const idx = part.lastIndexOf(':')
+      if (idx === -1) {
+        return { ok: false, code: 'BAD_RPC_FORMAT', message: 'RPC server "' + part + '" must include a port (host:port).' }
+      }
+      const host = part.slice(0, idx)
+      const portStr = part.slice(idx + 1)
+      const vHost = validateHost(host)
+      if (!vHost.ok) return { ok: false, code: 'BAD_RPC_HOST', message: 'Invalid RPC host in "' + part + '": ' + vHost.message }
+      const vPort = validatePort(portStr)
+      if (!vPort.ok) return { ok: false, code: 'BAD_RPC_PORT', message: 'Invalid RPC port in "' + part + '": ' + vPort.message }
+    }
+    return { ok: true, servers: parts.join(',') }
+  }
+
+  /**
    * Validate every element of an argv array before it reaches subprocess.spawn.
    * Arguments are never shell-interpreted, but we still refuse control bytes
    * and absurd lengths so nothing surprising crosses the process boundary.
@@ -167,6 +194,6 @@
   LLAMA.modules.push('security')
   LLAMA.security = {
     validateHttpUrl, validateFileName, validateRepository, validateModelId,
-    validateHost, validatePort, validateArgv, validateExtraArgs, validateVersionDirName,
+    validateHost, validatePort, validateRpcServers, validateArgv, validateExtraArgs, validateVersionDirName,
   }
 })(globalThis.LLAMA)

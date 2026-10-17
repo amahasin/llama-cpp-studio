@@ -30,6 +30,8 @@
     this._progressHandle = undefined
     this.lastError = undefined
     this._generation = 0
+    this._loadedIds = []
+    this._unloadedIds = new Set()
   }
 
   ServerManager.prototype.isRunning = function () { return this.state === 'RUNNING' }
@@ -174,7 +176,7 @@
    * numbers the offload report is built from. Shared so a model served through
    * the router is planned the same way as one served on its own.
    */
-  ServerManager.prototype._autoGpuLayers = function (model, profile, backend, hw) {
+  ServerManager.prototype._autoGpuLayers = function (model, profile, backend, hw, clusterMultiplier) {
     const meta = model.metadata || {}
     // block_count is the authoritative transformer layer count; layerCount can
     // still hold a pre-fix tensor tally on models registered earlier.
@@ -182,7 +184,10 @@
     const kvPerLayer = this.deps.hardware.estimateKvBytesPerLayer(
       meta, profile.contextSize, profile.cacheTypeK, profile.cacheTypeV)
     if (!GPU_BACKENDS.includes(backend)) return { gpuLayers: 0, layerCount, kvPerLayer }
-    const freeVram = (hw && hw.cuda && hw.cuda.vramFreeMiB) ? hw.cuda.vramFreeMiB * 1024 * 1024 : undefined
+    let freeVram = (hw && hw.cuda && hw.cuda.vramFreeMiB) ? hw.cuda.vramFreeMiB * 1024 * 1024 : undefined
+    if (freeVram && typeof clusterMultiplier === 'number' && clusterMultiplier > 1) {
+      freeVram = freeVram * clusterMultiplier
+    }
     const est = this.deps.hardware.estimateAutoGpuLayers(model.sizeBytes, layerCount, freeVram, kvPerLayer)
     const gpuLayers = est !== undefined && est > 0 ? est : (est === 0 ? 0 : 999)
     return { gpuLayers, layerCount, kvPerLayer }
@@ -257,7 +262,26 @@
 
     // Server-scoped flags always come from Server Config, never from a model.
     const srvCfg = config.get('server') || {}
+    const clusterCfg = srvCfg.cluster || {}
+    let rpcString = profile.rpc
+    let splitMode = profile.splitMode
+    let tensorSplit = profile.tensorSplit
+
+    if (!rpcString && clusterCfg.enabled && Array.isArray(clusterCfg.nodes) && clusterCfg.nodes.length > 0) {
+      const activeNodes = clusterCfg.nodes.filter(function (n) { return n.enabled !== false })
+      if (activeNodes.length > 0) {
+        rpcString = activeNodes.map(function (n) { return n.host + ':' + n.port }).join(',')
+        if (!splitMode) splitMode = clusterCfg.splitMode || 'layer'
+        if (!tensorSplit && clusterCfg.tensorSplit) tensorSplit = clusterCfg.tensorSplit
+      }
+    }
+
+    const clusterGpuCount = rpcString ? (1 + rpcString.split(',').filter(Boolean).length) : 1
+
     profile = util.deepMerge(profile, {
+      rpc: rpcString,
+      splitMode,
+      tensorSplit,
       parallel: srvCfg.parallel !== undefined ? srvCfg.parallel : profile.parallel,
       contBatching: srvCfg.contBatching !== false,
       cacheReuse: srvCfg.cacheReuse,
@@ -293,7 +317,7 @@
     // 5. GPU layers. The KV cache of every offloaded layer lives in VRAM too,
     //    so the context size and cache types are part of this decision.
     const hw = hwForDefaults
-    const auto = this._autoGpuLayers(model, profile, buildBackend, hw)
+    const auto = this._autoGpuLayers(model, profile, buildBackend, hw, clusterGpuCount)
     const layerCount = auto.layerCount
     const kvPerLayer = auto.kvPerLayer
     const kvTotal = kvPerLayer !== undefined && layerCount > 0 ? kvPerLayer * layerCount : undefined
@@ -435,6 +459,21 @@
     const warnings = []
     const entries = []
     const taken = new Set()
+
+    const clusterCfg = serverCfg.cluster || {}
+    let clusterRpcString = undefined
+    let clusterSplitMode = undefined
+    let clusterTensorSplit = undefined
+    if (clusterCfg.enabled && Array.isArray(clusterCfg.nodes) && clusterCfg.nodes.length > 0) {
+      const activeNodes = clusterCfg.nodes.filter(function (n) { return n.enabled !== false })
+      if (activeNodes.length > 0) {
+        clusterRpcString = activeNodes.map(function (n) { return n.host + ':' + n.port }).join(',')
+        clusterSplitMode = clusterCfg.splitMode || 'layer'
+        clusterTensorSplit = clusterCfg.tensorSplit
+      }
+    }
+    const clusterGpuCount = clusterRpcString ? (1 + clusterRpcString.split(',').filter(Boolean).length) : 1
+
     for (const model of listed.models || []) {
       if (model.missing === true) {
         warnings.push('"' + model.name + '" is not in the router: its file is missing.')
@@ -442,10 +481,16 @@
       }
       const base = LLAMA.profiles.defaultProfile({ metadata: model.metadata || {}, hardware: hw })
       const profile = util.deepMerge(base, model.settings || {})
+      if (!profile.rpc && clusterRpcString) {
+        profile.rpc = clusterRpcString
+        if (!profile.splitMode) profile.splitMode = clusterSplitMode
+        if (!profile.tensorSplit && clusterTensorSplit) profile.tensorSplit = clusterTensorSplit
+      }
       await this._resolveVision(profile, model)
       await this._resolveMtp(profile, model)
       if (profile.gpuLayers === undefined || profile.gpuLayers === 'auto') {
-        profile.gpuLayers = this._autoGpuLayers(model, profile, buildBackend, hw).gpuLayers
+        const activeMultiplier = profile.rpc ? (1 + profile.rpc.split(',').filter(Boolean).length) : clusterGpuCount
+        profile.gpuLayers = this._autoGpuLayers(model, profile, buildBackend, hw, activeMultiplier).gpuLayers
       }
       if (profile.threads === 'auto' || profile.threads === undefined) {
         profile.threads = hw.cpu.physicalCores || hw.cpu.logicalCores || 8
@@ -597,6 +642,8 @@
       return { ok: false, code: 'ALREADY_RUNNING', message: 'A server is already running. Stop it first or use Restart.' }
     }
     this._busy = true
+    this._unloadedIds = new Set()
+    this._loadedIds = []
     const generation = ++this._generation
     try {
       const o = opts || {}
@@ -688,7 +735,14 @@
       .filter(function (m) { return known.has(m.id) })
       .map(function (m) {
         const mine = known.get(m.id)
-        const state = (m.status && m.status.value) || 'unknown'
+        let state = (m.status && m.status.value) || 'unknown'
+        if (self.isModelUnloaded(m.id)) {
+          if (state === 'unloaded') {
+            self._unloadedIds.delete(m.id)
+          } else {
+            state = 'unloading'
+          }
+        }
         const working = state === 'loading' || state === 'unloading'
         if (working) {
           if (since[m.id] === undefined) since[m.id] = now
@@ -719,7 +773,7 @@
         return row
       })
     this._loadedIds = models
-      .filter(function (m) { return m.state === 'loaded' })
+      .filter(function (m) { return m.state === 'loaded' && !self.isModelUnloaded(m.id) })
       .map(function (m) { return m.id })
     return { ok: true, models }
   }
@@ -880,7 +934,21 @@
    * last poll. Cheap and synchronous, so the proxy can consult it per request.
    */
   ServerManager.prototype.routerLoaded = function () {
-    return Array.isArray(this._loadedIds) ? this._loadedIds.slice() : []
+    const list = Array.isArray(this._loadedIds) ? this._loadedIds.slice() : []
+    if (this._unloadedIds && this._unloadedIds.size > 0) {
+      return list.filter((id) => !this._unloadedIds.has(id))
+    }
+    return list
+  }
+
+  ServerManager.prototype.isModelUnloaded = function (id) {
+    return this._unloadedIds ? this._unloadedIds.has(String(id || '').trim()) : false
+  }
+
+  ServerManager.prototype.markModelWanted = function (id) {
+    if (this._unloadedIds && id) {
+      this._unloadedIds.delete(String(id).trim())
+    }
   }
 
   ServerManager.prototype._routerCommand = async function (path, id) {
@@ -908,10 +976,23 @@
    * `loaded` in routerModels().
    */
   ServerManager.prototype.loadModel = function (id) {
+    if (typeof id === 'string' && id.trim() !== '' && this._unloadedIds) {
+      this._unloadedIds.delete(id.trim())
+    }
     return this._routerCommand('/models/load', id)
   }
 
   ServerManager.prototype.unloadModel = function (id) {
+    if (typeof id === 'string' && id.trim() !== '') {
+      const cleanId = id.trim()
+      this._unloadedIds = this._unloadedIds || new Set()
+      this._unloadedIds.add(cleanId)
+      if (Array.isArray(this._loadedIds)) {
+        this._loadedIds = this._loadedIds.filter(function (x) { return x !== cleanId })
+      }
+      if (this._progressByModel) delete this._progressByModel[cleanId]
+      if (this._loadingSince) delete this._loadingSince[cleanId]
+    }
     return this._routerCommand('/models/unload', id)
   }
 
@@ -1023,6 +1104,7 @@
       endpoint: 'http://' + plan.host + ':' + plan.port + '/v1',
       startedAt: Date.now(),
       generation,
+      _server: this,
     }
     this.process = proc
     const detach = deps.logs.attachServer(plan.versionEntry.version + '-' + proc.pid, handle.collected, deps.timers)
@@ -1160,6 +1242,8 @@
       this._stopProgress()
       this._progressByModel = {}
       this._loadingSince = {}
+      this._unloadedIds = new Set()
+      this._loadedIds = []
       this.process = undefined
       this._setState('STOPPED')
       return { ok: true, wasRunning: true }

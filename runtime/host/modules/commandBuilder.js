@@ -64,6 +64,8 @@
     { name: 'rope-freq-base', form: 'value', caps: ['rope-freq-base'] },
 
     // ---- core & hardware ----
+    { name: 'rpc', form: 'value', caps: ['rpc'] },
+    { name: 'split-mode', form: 'value', caps: ['sm', 'split-mode'] },
     { name: 'tensor-split', form: 'value', caps: ['ts', 'tensor-split'] },
     { name: 'main-gpu', form: 'value', caps: ['mg', 'main-gpu'] },
     { name: 'no-kv-offload', form: 'flag', caps: ['nkvo', 'no-kv-offload'] },
@@ -230,6 +232,8 @@
     push('rope-freq-base', profile.ropeFreqBase)
 
     // ---- core & hardware ----
+    push('rpc', profile.rpc)
+    push('split-mode', profile.splitMode)
     push('tensor-split', profile.tensorSplit)
     push('main-gpu', profile.mainGpu)
     push('no-kv-offload', profile.noKvOffload === true)

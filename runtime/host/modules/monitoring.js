@@ -226,10 +226,17 @@
     let isRouterEmpty = false
 
     if (proc.router === true) {
+      const serverMgr = this.deps.server || (proc && proc._server)
       // In router mode, query /v1/models to see which model is currently loaded
       const modelsRes = await exec.httpGetJson(base + '/v1/models', { timeoutMs: 3000, headers })
       const modelList = (modelsRes.ok && modelsRes.data && Array.isArray(modelsRes.data.data)) ? modelsRes.data.data : []
-      const loaded = modelList.find(function (m) { return m.status && m.status.value === 'loaded' })
+      const loaded = modelList.find(function (m) {
+        if (!m.status || m.status.value !== 'loaded') return false
+        if (serverMgr && typeof serverMgr.isModelUnloaded === 'function' && serverMgr.isModelUnloaded(m.id)) {
+          return false
+        }
+        return true
+      })
       if (loaded && loaded.id) {
         out.server.activeModel = loaded.id
         metricsUrl = base + '/metrics?model=' + encodeURIComponent(loaded.id)
@@ -245,7 +252,7 @@
     const fetches = [
       metricsUrl ? exec.httpGetText(metricsUrl, { timeoutMs: 5000, headers }) : Promise.resolve({ ok: false }),
       slotsUrl ? exec.httpGetJson(slotsUrl, { timeoutMs: 5000, headers }) : Promise.resolve({ ok: false }),
-      exec.httpGetJson(base + '/props', { timeoutMs: 5000, headers }),
+      isRouterEmpty ? Promise.resolve({ ok: false }) : exec.httpGetJson(base + '/props', { timeoutMs: 5000, headers }),
     ]
 
     const [metrics, slots, props] = await Promise.all(fetches)

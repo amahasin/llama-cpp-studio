@@ -91,6 +91,13 @@
         webPath: undefined,
         sslKeyFile: undefined,
         sslCertFile: undefined,
+        // ---- cluster & distributed inference ----
+        cluster: {
+          enabled: false,
+          nodes: [],
+          splitMode: 'layer',
+          tensorSplit: undefined,
+        },
       },
       hardware: { backend: 'auto', gpuLayers: 'auto', threads: 'auto' },
     }
@@ -149,6 +156,39 @@
     if ((out.server.sslKeyFile === undefined) !== (out.server.sslCertFile === undefined)) {
       out.server.sslKeyFile = undefined
       out.server.sslCertFile = undefined
+    }
+    // Cluster configuration
+    if (!util.isPlainObject(out.server.cluster)) {
+      out.server.cluster = { enabled: false, nodes: [], splitMode: 'layer' }
+    } else {
+      out.server.cluster.enabled = out.server.cluster.enabled === true
+      if (!Array.isArray(out.server.cluster.nodes)) {
+        out.server.cluster.nodes = []
+      } else {
+        out.server.cluster.nodes = out.server.cluster.nodes.filter(function (n) {
+          return util.isPlainObject(n) && typeof n.host === 'string' && n.host.trim() !== ''
+        }).map(function (n) {
+          const p = Number(n.port)
+          const key = String(n.host).trim() + ':' + (Number.isNaN(p) || p < 1024 || p > 65535 ? 50052 : p)
+          return {
+            id: String(n.id || key).trim(),
+            host: String(n.host).trim(),
+            port: Number.isNaN(p) || p < 1024 || p > 65535 ? 50052 : p,
+            label: n.label ? String(n.label).trim() : (n.hostname ? String(n.hostname).trim() : undefined),
+            enabled: n.enabled !== false,
+            gpu: n.gpu ? String(n.gpu).trim() : undefined,
+            vramMiB: Number(n.vramMiB) || 12288,
+          }
+        })
+      }
+      if (!['none', 'layer', 'row', 'tensor'].includes(out.server.cluster.splitMode)) {
+        out.server.cluster.splitMode = 'layer'
+      }
+      if (typeof out.server.cluster.tensorSplit === 'string' && out.server.cluster.tensorSplit.trim() !== '') {
+        out.server.cluster.tensorSplit = out.server.cluster.tensorSplit.trim()
+      } else {
+        out.server.cluster.tensorSplit = undefined
+      }
     }
     // Managed directories are user-settable (install/models/logs/…). Keep them
     // absolute, slash-normalized and free of control characters; anything
