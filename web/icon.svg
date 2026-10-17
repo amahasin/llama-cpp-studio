@@ -12,7 +12,7 @@
   src/tray.ps1. Change the path here and change it there.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="llama.cpp Studio">
-  <rect width="64" height="64" rx="15" fill="#6366f1"/>
+  <rect width="64" height="64" rx="15" fill="#005fb8"/>
   <g fill="#ffffff" transform="translate(-2.1 5.2) scale(0.855)">
     <path d="M23 57 C23 45 25 35 30 29 C32 25 32.5 22 33 19
       L31.2 10 C30.6 5 35.2 4.4 36.2 9.4 L37.5 18 L42 17 L43 7.6

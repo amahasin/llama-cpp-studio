@@ -28,15 +28,16 @@ html, body {
   top: calc(10px + env(safe-area-inset-top));
   left: calc(10px + env(safe-area-inset-left));
   z-index: 60;
-  width: 42px;
-  height: 42px;
+  width: 44px;
+  height: 44px;
   align-items: center;
   justify-content: center;
-  border-radius: 11px;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
-  background: var(--dsw-alias-bg-layer-1, #fff);
-  color: var(--dsw-alias-text-primary, #1a1a1f);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  border-radius: 5px;
+  border: 1px solid var(--fl-control-stroke, rgba(0, 0, 0, 0.06));
+  border-bottom-color: var(--fl-control-stroke-bottom, rgba(0, 0, 0, 0.16));
+  background: var(--fl-control, #fbfbfb);
+  color: var(--dsw-alias-label-primary, #1a1a1a);
+  box-shadow: var(--dsw-shadow-lv1, 0 2px 4px rgba(0, 0, 0, 0.04));
   cursor: pointer;
   padding: 0;
   -webkit-tap-highlight-color: transparent;
@@ -49,11 +50,14 @@ html, body {
   position: fixed;
   inset: 0;
   z-index: 45;
-  background: rgba(0, 0, 0, 0.42);
+  background: var(--dsw-alias-bg-mask-1, rgba(0, 0, 0, 0.3));
   border: 0;
   padding: 0;
   -webkit-tap-highlight-color: transparent;
 }
+
+/* The look of the app on every screen size — colours, controls, surfaces —
+ * lives in fluent.css. This file only rearranges the layout for small screens. */
 
 /* ---------- phones and small tablets ---------- */
 
@@ -92,7 +96,7 @@ html, body {
   /* The drawer button floats at the top-left, exactly where the sidebar puts
      its own brand mark; give the brand room so the two do not sit on top of
      each other while the drawer is open. */
-  .llama-sidebar-brand { padding-left: 48px !important; min-height: 42px !important; }
+  .llama-sidebar-brand { padding-left: 62px !important; min-height: 44px !important; }
 
   /* The main column now owns the width. The top padding clears the button. */
   .llama-main {
@@ -118,7 +122,7 @@ html, body {
     gap: 10px !important;
   }
 
-  .llama-card { padding: 14px !important; border-radius: 12px !important; }
+  .llama-card { padding: 14px !important; }
 
   /* Wide content scrolls inside itself rather than widening the page. */
   .llama-table-wrap,

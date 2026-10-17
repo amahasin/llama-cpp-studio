@@ -3,87 +3,166 @@
  * The plugin styles itself entirely from --dsw-alias-* variables so it can ride
  * the DeepSeek Harness theme. The standalone app defines the same contract
  * here (light on :root, dark under body[data-ds-dark-theme]), which is why the
- * UI needs no changes at all to run outside the harness. */
+ * UI needs no changes at all to run outside the harness.
+ *
+ * The values are Windows 11's Fluent palette: Mica for the window, a lighter
+ * layer for the content area, cards on that, and the system blue accent. The
+ * --fl-* tokens below are the ones the harness contract has no name for —
+ * control fills, the darker bottom stroke Fluent gives buttons and text
+ * boxes, InfoBar backgrounds — and only web/fluent.css reads them.
+ */
 
 :root {
-  --dsw-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
-  --ds-font-family-code: 'JetBrains Mono', 'Cascadia Code', Consolas, 'SF Mono', Menlo, monospace;
-  --ds-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
-  --ds-transition-duration: 0.2s;
-  --ds-transition-duration-fast: 0.1s;
-  --ds-transition-duration-slow: 0.3s;
+  --dsw-font-family: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --ds-font-family-code: 'Cascadia Mono', 'Cascadia Code', Consolas, 'SF Mono', Menlo, monospace;
+  --fl-font-display: 'Segoe UI Variable Display', 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --ds-ease-in-out: cubic-bezier(0, 0, 0, 1);
+  --ds-transition-duration: 0.167s;
+  --ds-transition-duration-fast: 0.083s;
+  --ds-transition-duration-slow: 0.25s;
 }
 
 body {
   /* surfaces */
-  --dsw-alias-bg-base: #f7f8fa;
+  --dsw-alias-bg-base: #f3f3f3;
   --dsw-alias-bg-layer-1: #ffffff;
-  --dsw-alias-bg-layer-2: #ffffff;
-  --dsw-alias-bg-layer-3: #f2f4f7;
-  --dsw-alias-bg-module-platform: #f1f3f6;
+  --dsw-alias-bg-layer-2: #f9f9f9;
+  --dsw-alias-bg-layer-3: #f3f3f3;
+  --dsw-alias-bg-module-platform: #f0f0f0;
   --dsw-alias-bg-overlay: #ffffff;
-  --dsw-alias-bg-mask-1: rgba(15, 20, 30, 0.32);
+  --dsw-alias-bg-mask-1: rgba(0, 0, 0, 0.3);
   /* text */
-  --dsw-alias-label-primary: #0f1115;
-  --dsw-alias-label-secondary: #575e68;
-  --dsw-alias-label-tertiary: #7b828c;
-  --dsw-alias-label-caption: #99a0a9;
+  --dsw-alias-label-primary: #1a1a1a;
+  --dsw-alias-label-secondary: #5d5d5d;
+  --dsw-alias-label-tertiary: #666666;
+  --dsw-alias-label-caption: #737373;
   --dsw-alias-label-primary-foreground: #ffffff;
   /* lines */
-  --dsw-alias-border-l1: rgba(15, 20, 30, 0.05);
-  --dsw-alias-border-l2: rgba(15, 20, 30, 0.11);
-  --dsw-alias-border-l3: rgba(15, 20, 30, 0.16);
+  --dsw-alias-border-l1: rgba(0, 0, 0, 0.06);
+  --dsw-alias-border-l2: rgba(0, 0, 0, 0.1);
+  --dsw-alias-border-l3: rgba(0, 0, 0, 0.16);
   /* interaction */
-  --dsw-alias-interactive-bg-hover: rgba(38, 49, 72, 0.06);
-  --dsw-alias-interactive-bg-hover-solid: #eef0f4;
-  --dsw-alias-interactive-bg-hover-danger: rgba(220, 38, 38, 0.07);
-  --dsw-alias-interactive-bg-active: rgba(38, 49, 72, 0.1);
+  --dsw-alias-interactive-bg-hover: rgba(0, 0, 0, 0.037);
+  --dsw-alias-interactive-bg-hover-solid: #eaeaea;
+  --dsw-alias-interactive-bg-hover-danger: rgba(196, 43, 28, 0.08);
+  --dsw-alias-interactive-bg-active: rgba(0, 0, 0, 0.024);
   /* state */
-  --dsw-alias-state-business-primary: #4176e6;
-  --dsw-alias-state-success-primary: #16a34a;
-  --dsw-alias-state-warn-primary: #d97706;
-  --dsw-alias-state-error-primary: #dc2626;
-  --dsw-alias-brand-primary: #0f1115;
+  --dsw-alias-state-business-primary: #005fb8;
+  --dsw-alias-state-success-primary: #0f7b0f;
+  --dsw-alias-state-warn-primary: #9d5d00;
+  --dsw-alias-state-error-primary: #c42b1c;
+  --dsw-alias-brand-primary: #1a1a1a;
   /* effects */
-  --dsw-shadow-lv1: 0 1px 2px rgba(15, 20, 30, 0.08);
-  --dsw-shadow-lv3: 0 12px 40px rgba(15, 20, 30, 0.16);
+  --dsw-shadow-lv1: 0 2px 4px rgba(0, 0, 0, 0.04);
+  --dsw-shadow-lv3: 0 8px 16px rgba(0, 0, 0, 0.14);
+
+  /* Fluent-only */
+  --fl-layer: #f9f9f9;
+  --fl-card: #ffffff;
+  --fl-card-hover: #fbfbfb;
+  --fl-card-stroke: rgba(0, 0, 0, 0.0803);
+  --fl-control: #fbfbfb;
+  --fl-control-hover: #f6f6f6;
+  --fl-control-pressed: #f5f5f5;
+  --fl-control-stroke: rgba(0, 0, 0, 0.0578);
+  --fl-control-stroke-bottom: rgba(0, 0, 0, 0.1622);
+  --fl-input: #ffffff;
+  --fl-input-hover: #f9f9f9;
+  --fl-input-focus: #ffffff;
+  --fl-input-stroke-bottom: #868686;
+  --fl-accent-hover: #1a6fc0;
+  --fl-accent-pressed: #3283ce;
+  --fl-accent-stroke: rgba(255, 255, 255, 0.08);
+  --fl-accent-stroke-bottom: rgba(0, 0, 0, 0.4);
+  --fl-subtle-hover: rgba(0, 0, 0, 0.037);
+  --fl-subtle-pressed: rgba(0, 0, 0, 0.024);
+  --fl-switch-off-stroke: #868686;
+  --fl-switch-off-knob: #5d5d5d;
+  --fl-progress-track: #8a8a8a;
+  --fl-info-bg: #f6f6f6;
+  --fl-info-stroke: rgba(0, 0, 0, 0.0578);
+  --fl-caution-bg: #fff4ce;
+  --fl-caution-stroke: rgba(157, 93, 0, 0.18);
+  --fl-critical-bg: #fde7e9;
+  --fl-critical-stroke: rgba(196, 43, 28, 0.18);
+  --fl-success-bg: #dff6dd;
+  --fl-success-stroke: rgba(15, 123, 15, 0.18);
+  --fl-dialog-foot: #f3f3f3;
+  --fl-focus-outer: #1a1a1a;
+  --fl-focus-inner: #ffffff;
+  --fl-scroll-thumb: rgba(0, 0, 0, 0.32);
 
   background: var(--dsw-alias-bg-base);
   color: var(--dsw-alias-label-primary);
 }
 
 body[data-ds-dark-theme] {
-  --dsw-alias-bg-base: #151517;
-  --dsw-alias-bg-layer-1: #1f1f21;
-  --dsw-alias-bg-layer-2: #232326;
-  --dsw-alias-bg-layer-3: #2b2b2e;
-  --dsw-alias-bg-module-platform: #2a2a2d;
-  --dsw-alias-bg-overlay: #232326;
-  --dsw-alias-bg-mask-1: rgba(0, 0, 0, 0.55);
+  --dsw-alias-bg-base: #202020;
+  --dsw-alias-bg-layer-1: #2b2b2b;
+  --dsw-alias-bg-layer-2: #272727;
+  --dsw-alias-bg-layer-3: #1c1c1c;
+  --dsw-alias-bg-module-platform: #333333;
+  --dsw-alias-bg-overlay: #2b2b2b;
+  --dsw-alias-bg-mask-1: rgba(0, 0, 0, 0.5);
 
-  --dsw-alias-label-primary: #f4f5f7;
-  --dsw-alias-label-secondary: #b3b8c0;
-  --dsw-alias-label-tertiary: #8b9198;
-  --dsw-alias-label-caption: #71767d;
-  --dsw-alias-label-primary-foreground: #ffffff;
+  --dsw-alias-label-primary: #ffffff;
+  --dsw-alias-label-secondary: #c5c5c5;
+  --dsw-alias-label-tertiary: #a8a8a8;
+  --dsw-alias-label-caption: #9d9d9d;
+  --dsw-alias-label-primary-foreground: #000000;
 
   --dsw-alias-border-l1: rgba(255, 255, 255, 0.06);
-  --dsw-alias-border-l2: rgba(255, 255, 255, 0.12);
-  --dsw-alias-border-l3: rgba(255, 255, 255, 0.18);
+  --dsw-alias-border-l2: rgba(255, 255, 255, 0.09);
+  --dsw-alias-border-l3: rgba(255, 255, 255, 0.16);
 
-  --dsw-alias-interactive-bg-hover: rgba(255, 255, 255, 0.08);
-  --dsw-alias-interactive-bg-hover-solid: #2f2f33;
-  --dsw-alias-interactive-bg-hover-danger: rgba(242, 90, 90, 0.16);
-  --dsw-alias-interactive-bg-active: rgba(255, 255, 255, 0.14);
+  --dsw-alias-interactive-bg-hover: rgba(255, 255, 255, 0.06);
+  --dsw-alias-interactive-bg-hover-solid: #2d2d2d;
+  --dsw-alias-interactive-bg-hover-danger: rgba(255, 153, 164, 0.12);
+  --dsw-alias-interactive-bg-active: rgba(255, 255, 255, 0.042);
 
-  --dsw-alias-state-business-primary: #6b8afc;
-  --dsw-alias-state-success-primary: #34d399;
-  --dsw-alias-state-warn-primary: #f5b342;
-  --dsw-alias-state-error-primary: #f25a5a;
-  --dsw-alias-brand-primary: #f4f5f7;
+  --dsw-alias-state-business-primary: #60cdff;
+  --dsw-alias-state-success-primary: #6ccb5f;
+  --dsw-alias-state-warn-primary: #fce100;
+  --dsw-alias-state-error-primary: #ff99a4;
+  --dsw-alias-brand-primary: #ffffff;
 
-  --dsw-shadow-lv1: 0 1px 2px rgba(0, 0, 0, 0.5);
-  --dsw-shadow-lv3: 0 12px 40px rgba(0, 0, 0, 0.55);
+  --dsw-shadow-lv1: 0 2px 4px rgba(0, 0, 0, 0.26);
+  --dsw-shadow-lv3: 0 8px 16px rgba(0, 0, 0, 0.26);
+
+  --fl-layer: #272727;
+  --fl-card: #2b2b2b;
+  --fl-card-hover: #323232;
+  --fl-card-stroke: rgba(0, 0, 0, 0.24);
+  --fl-control: #2d2d2d;
+  --fl-control-hover: #323232;
+  --fl-control-pressed: #272727;
+  --fl-control-stroke: rgba(255, 255, 255, 0.07);
+  --fl-control-stroke-bottom: rgba(255, 255, 255, 0.035);
+  --fl-input: #2d2d2d;
+  --fl-input-hover: #323232;
+  --fl-input-focus: #1f1f1f;
+  --fl-input-stroke-bottom: #9a9a9a;
+  --fl-accent-hover: #5ab9e6;
+  --fl-accent-pressed: #52a6ce;
+  --fl-accent-stroke: rgba(255, 255, 255, 0.08);
+  --fl-accent-stroke-bottom: rgba(0, 0, 0, 0.14);
+  --fl-subtle-hover: rgba(255, 255, 255, 0.06);
+  --fl-subtle-pressed: rgba(255, 255, 255, 0.042);
+  --fl-switch-off-stroke: #9a9a9a;
+  --fl-switch-off-knob: #cecece;
+  --fl-progress-track: #9a9a9a;
+  --fl-info-bg: #2e2e2e;
+  --fl-info-stroke: rgba(255, 255, 255, 0.06);
+  --fl-caution-bg: #433519;
+  --fl-caution-stroke: rgba(252, 225, 0, 0.12);
+  --fl-critical-bg: #442726;
+  --fl-critical-stroke: rgba(255, 153, 164, 0.12);
+  --fl-success-bg: #393d1b;
+  --fl-success-stroke: rgba(108, 203, 95, 0.12);
+  --fl-dialog-foot: #202020;
+  --fl-focus-outer: #ffffff;
+  --fl-focus-inner: #000000;
+  --fl-scroll-thumb: rgba(255, 255, 255, 0.36);
 }
 
 /* ---- app chrome ---- */
@@ -95,15 +174,16 @@ body {
   color: var(--dsw-alias-label-primary);
 }
 #root { height: 100%; min-height: 100vh; }
+/* A critical InfoBar, floated over the window. */
 .app-offline {
   position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 999999;
-  padding: 10px 16px; border-radius: 10px; font-size: 13px; font-weight: 500;
-  border: 1px solid var(--dsw-alias-state-error-primary);
-  color: var(--dsw-alias-state-error-primary);
-  background: var(--dsw-alias-bg-layer-1);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  padding: 12px 16px; border-radius: 8px; font-size: 14px;
+  border: 1px solid var(--fl-critical-stroke);
+  color: var(--dsw-alias-label-primary);
+  background: var(--fl-critical-bg);
+  box-shadow: var(--dsw-shadow-lv3);
 }
 .app-boot {
   display: flex; align-items: center; justify-content: center; gap: 10px;
-  height: 100vh; color: var(--dsw-alias-label-tertiary); font-size: 14px;
+  height: 100vh; color: var(--dsw-alias-label-secondary); font-size: 14px;
 }

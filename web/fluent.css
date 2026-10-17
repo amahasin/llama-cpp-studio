@@ -1,0 +1,939 @@
+/*
+ * fluent.css — the app dressed as a Windows 11 application.
+ *
+ * The UI is the plugin's own bundle, used unmodified, and it styles itself
+ * with a stylesheet of its own (BASE_CSS in runtime/client.bundle.js). This
+ * file restyles that UI by its class names: Mica behind the navigation pane,
+ * a lighter content layer with the rounded corner WinUI gives it, cards on
+ * that, and Fluent's controls — buttons and text boxes with the darker
+ * bottom stroke, the pill indicator on the selected page, ToggleSwitch,
+ * InfoBar, ContentDialog. Colours come from web/theme.css; nothing here names
+ * a colour of its own, so light and dark follow from the tokens alone.
+ *
+ * app.js injects this AFTER the plugin's stylesheet and BEFORE mobile.css.
+ * After the plugin's because that stylesheet uses !important throughout and
+ * load order alone would not win — which is also why nearly every rule here
+ * carries it. Before mobile.css so that the phone layout, which uses the same
+ * selectors, still has the last word below 860px.
+ */
+
+/* ==========================================================================
+   Shell: navigation pane on Mica, content on a layer
+   ========================================================================== */
+
+.llama-app {
+  font-size: 14px !important;
+  line-height: 1.43 !important;
+  background: var(--dsw-alias-bg-base) !important;
+}
+
+::selection {
+  background: var(--dsw-alias-state-business-primary);
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--fl-scroll-thumb) transparent;
+}
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--fl-scroll-thumb);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Fluent's focus rectangle: a 2px ring in the text colour, clear of the control. */
+.llama-app :focus-visible,
+.llama-modal-backdrop :focus-visible {
+  outline: 2px solid var(--fl-focus-outer) !important;
+  outline-offset: 1px !important;
+  box-shadow: none !important;
+}
+
+/* ---------- navigation pane ---------- */
+
+/* The pane sits on Mica, the same colour as the window. Solid rather than
+   transparent so that the phone drawer, which slides over the content, still
+   has a background. */
+.llama-sidebar {
+  width: 280px !important;
+  min-width: 280px !important;
+  max-width: 280px !important;
+  padding: 4px 4px 12px !important;
+  gap: 2px !important;
+  background: var(--dsw-alias-bg-base) !important;
+  border-right: 0 !important;
+}
+
+.llama-sidebar-brand {
+  padding: 14px 14px 16px !important;
+  border-bottom: 0 !important;
+}
+.llama-sidebar-title {
+  gap: 12px !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  letter-spacing: normal !important;
+  color: var(--dsw-alias-label-primary) !important;
+}
+.llama-sidebar-subtitle { display: none !important; }
+
+.llama-sidebar-nav {
+  gap: 3px !important;
+  margin-top: 0 !important;
+}
+
+.llama-sidebar-item {
+  position: relative !important;
+  min-height: 40px !important;
+  margin: 0 4px !important;
+  padding: 0 14px !important;
+  gap: 14px !important;
+  border: 0 !important;
+  border-radius: 5px !important;
+  background: transparent !important;
+  color: var(--dsw-alias-label-primary) !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  letter-spacing: normal !important;
+  box-shadow: none !important;
+  transition: background-color var(--ds-transition-duration-fast) linear !important;
+}
+.llama-sidebar-item svg { opacity: 1 !important; }
+.llama-sidebar-item:hover { background: var(--fl-subtle-hover) !important; }
+.llama-sidebar-item:active { background: var(--fl-subtle-pressed) !important; color: var(--dsw-alias-label-secondary) !important; }
+.llama-sidebar-item[data-active="1"] {
+  background: var(--dsw-alias-interactive-bg-hover-solid) !important;
+  font-weight: 400 !important;
+}
+/* The selection pill. */
+.llama-sidebar-item[data-active="1"]::before {
+  content: '' !important;
+  position: absolute !important;
+  left: 0 !important;
+  top: 50% !important;
+  bottom: auto !important;
+  width: 3px !important;
+  height: 16px !important;
+  margin-top: -8px !important;
+  border-radius: 2px !important;
+  background: var(--dsw-alias-state-business-primary) !important;
+  box-shadow: none !important;
+}
+
+/* Footer of the pane: status, endpoint and theme read as quiet pane items
+   under a separator, not as cards. */
+.llama-sidebar-bottom {
+  margin: 0 4px !important;
+  padding: 12px 0 0 !important;
+  gap: 8px !important;
+  border-top: 1px solid var(--dsw-alias-border-l2) !important;
+}
+.llama-sidebar-status {
+  padding: 4px 14px !important;
+  gap: 6px !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+}
+.llama-sidebar-status-label,
+.llama-sidebar-endpoint-label {
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  color: var(--dsw-alias-label-secondary) !important;
+}
+.llama-sidebar-status-sub { font-size: 12px !important; color: var(--dsw-alias-label-secondary) !important; }
+.llama-sidebar-status-engine { font-size: 12px !important; color: var(--dsw-alias-label-primary) !important; }
+
+.llama-sidebar-endpoint { padding: 0 14px !important; gap: 4px !important; }
+.llama-sidebar-endpoint-label { padding: 0 !important; }
+.llama-sidebar-endpoint-btn {
+  min-height: 32px !important;
+  padding: 5px 10px !important;
+  border-radius: 4px !important;
+  border: 1px solid var(--fl-control-stroke) !important;
+  border-bottom-color: var(--fl-control-stroke-bottom) !important;
+  background: var(--fl-control) !important;
+  color: var(--dsw-alias-label-primary) !important;
+  font-size: 12px !important;
+}
+.llama-sidebar-endpoint-btn:hover { background: var(--fl-control-hover) !important; }
+
+.llama-sidebar-foot { padding: 0 !important; border-top: 0 !important; gap: 0 !important; }
+.llama-sidebar-theme-btn {
+  justify-content: flex-start !important;
+  gap: 14px !important;
+  width: auto !important;
+  min-height: 40px !important;
+  margin: 0 4px !important;
+  padding: 0 14px !important;
+  border: 0 !important;
+  border-radius: 5px !important;
+  background: transparent !important;
+  color: var(--dsw-alias-label-primary) !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+}
+.llama-sidebar-theme-btn:hover { background: var(--fl-subtle-hover) !important; }
+
+/* ---------- content layer ---------- */
+
+.llama-main {
+  padding: 28px 40px 56px !important;
+}
+.llama-main:not([data-page="chat"]) > * { max-width: 1000px !important; }
+
+/* WinUI draws the content area as a lighter layer over Mica with one rounded
+   corner where it meets the navigation pane. Only beside the pane: on a phone
+   the pane is a drawer and the content owns the whole window. */
+@media (min-width: 861px) {
+  .llama-main {
+    background: var(--fl-layer) !important;
+    border-top: 1px solid var(--dsw-alias-border-l1) !important;
+    border-left: 1px solid var(--dsw-alias-border-l1) !important;
+    border-top-left-radius: 8px !important;
+  }
+}
+
+/* The page title. The pages have none of their own — the selected item in
+   the pane was the only thing saying where you are — and every Windows 11
+   page opens with one. Drawn from the data-page attribute the app sets, so
+   it needs nothing from the bundle. */
+.llama-main:not([data-page="chat"])::before {
+  display: block;
+  width: 100%;
+  max-width: 1000px;
+  margin: 0 auto 20px;
+  font-family: var(--fl-font-display);
+  font-size: 28px;
+  line-height: 36px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+.llama-main[data-page="dashboard"]::before { content: 'Dashboard'; }
+.llama-main[data-page="models"]::before { content: 'Models'; }
+.llama-main[data-page="runtime"]::before { content: 'llama.cpp'; }
+.llama-main[data-page="server"]::before { content: 'Server Config'; }
+.llama-main[data-page="logs"]::before { content: 'Logs'; }
+.llama-main[data-page="diagnostics"]::before { content: 'Diagnostics'; }
+
+/* ==========================================================================
+   Surfaces
+   ========================================================================== */
+
+.llama-card {
+  padding: 16px 20px !important;
+  border: 1px solid var(--fl-card-stroke) !important;
+  border-radius: 7px !important;
+  background: var(--fl-card) !important;
+  box-shadow: none !important;
+}
+.llama-card + .llama-card { margin-top: 8px !important; }
+
+/* Section headers are sentence-case BodyStrong in Windows 11, not small caps. */
+.llama-card-head { margin-bottom: 12px !important; }
+.llama-card-head h3,
+.llama-section-title,
+.llama-cfg-band {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  line-height: 20px !important;
+  letter-spacing: normal !important;
+  text-transform: none !important;
+  color: var(--dsw-alias-label-primary) !important;
+}
+.llama-section-title { margin: 24px 0 8px !important; }
+.llama-cfg-band { margin: 20px 0 4px !important; }
+.llama-card-head .llama-card-sub { font-size: 12px !important; color: var(--dsw-alias-label-secondary) !important; }
+
+.llama-hint { font-size: 12px !important; color: var(--dsw-alias-label-secondary) !important; }
+.llama-kv { font-size: 14px !important; }
+.llama-kv dt { color: var(--dsw-alias-label-secondary) !important; }
+
+.llama-empty {
+  padding: 32px 16px !important;
+  border: 0 !important;
+  border-radius: 7px !important;
+  background: var(--fl-subtle-hover) !important;
+  color: var(--dsw-alias-label-secondary) !important;
+  font-size: 14px !important;
+}
+.llama-empty strong { font-size: 14px !important; font-weight: 600 !important; color: var(--dsw-alias-label-primary) !important; }
+
+/* ---------- stats ---------- */
+
+.llama-stat {
+  padding: 14px 16px !important;
+  border: 1px solid var(--fl-card-stroke) !important;
+  border-radius: 7px !important;
+  background: var(--fl-card) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+.llama-stat dt {
+  margin: 0 0 4px !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  letter-spacing: normal !important;
+  text-transform: none !important;
+  color: var(--dsw-alias-label-secondary) !important;
+}
+.llama-stat dd {
+  font-family: var(--fl-font-display) !important;
+  font-size: 20px !important;
+  line-height: 28px !important;
+  font-weight: 600 !important;
+  letter-spacing: normal !important;
+  font-variant-numeric: tabular-nums !important;
+  color: var(--dsw-alias-label-primary) !important;
+}
+.llama-stat .llama-stat-sub { font-size: 12px !important; color: var(--dsw-alias-label-secondary) !important; }
+
+/* ---------- meters and progress: Fluent ProgressBar ---------- */
+
+/* A hairline track with a 3px bar riding on it, in the accent colour. */
+.llama-meter { gap: 8px !important; background: transparent !important; border: 0 !important; padding: 0 !important; box-shadow: none !important; transform: none !important; }
+.llama-meter-label {
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  letter-spacing: normal !important;
+  text-transform: none !important;
+  color: var(--dsw-alias-label-secondary) !important;
+}
+.llama-meter-value {
+  font-family: var(--fl-font-display) !important;
+  font-size: 20px !important;
+  font-weight: 600 !important;
+  letter-spacing: normal !important;
+}
+.llama-meter-sub { font-size: 12px !important; color: var(--dsw-alias-label-secondary) !important; }
+
+.llama-meter-track,
+.llama-progress {
+  position: relative !important;
+  height: 3px !important;
+  border-radius: 2px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+}
+.llama-meter-track::before,
+.llama-progress::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 1px;
+  height: 1px;
+  background: var(--fl-progress-track);
+}
+.llama-progress { overflow: hidden !important; }
+.llama-meter-fill,
+.llama-progress > div {
+  position: relative !important;
+  height: 3px !important;
+  border-radius: 2px !important;
+  background: var(--dsw-alias-state-business-primary) !important;
+  box-shadow: none !important;
+}
+.llama-meter[data-tone="warn"] .llama-meter-fill { background: var(--dsw-alias-state-warn-primary) !important; }
+.llama-meter[data-tone="err"] .llama-meter-fill { background: var(--dsw-alias-state-error-primary) !important; }
+
+/* ==========================================================================
+   Controls
+   ========================================================================== */
+
+/* ---------- Button ---------- */
+
+.llama-btn {
+  min-height: 32px !important;
+  padding: 5px 12px 6px !important;
+  gap: 8px !important;
+  border: 1px solid var(--fl-control-stroke) !important;
+  border-bottom-color: var(--fl-control-stroke-bottom) !important;
+  border-radius: 4px !important;
+  background: var(--fl-control) !important;
+  color: var(--dsw-alias-label-primary) !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  line-height: 20px !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  transform: none !important;
+  filter: none !important;
+  transition: background-color var(--ds-transition-duration-fast) linear !important;
+}
+.llama-btn:hover:not(:disabled) { background: var(--fl-control-hover) !important; }
+.llama-btn:active:not(:disabled) {
+  background: var(--fl-control-pressed) !important;
+  border-bottom-color: var(--fl-control-stroke) !important;
+  color: var(--dsw-alias-label-secondary) !important;
+}
+.llama-btn:disabled { opacity: 0.45 !important; cursor: default !important; }
+
+.llama-btn[data-variant='primary'] {
+  background: var(--dsw-alias-state-business-primary) !important;
+  border-color: var(--fl-accent-stroke) !important;
+  border-bottom-color: var(--fl-accent-stroke-bottom) !important;
+  color: var(--dsw-alias-label-primary-foreground) !important;
+}
+.llama-btn[data-variant='primary']:hover:not(:disabled) { background: var(--fl-accent-hover) !important; }
+.llama-btn[data-variant='primary']:active:not(:disabled) {
+  background: var(--fl-accent-pressed) !important;
+  border-color: transparent !important;
+  color: var(--dsw-alias-label-primary-foreground) !important;
+}
+
+.llama-btn[data-variant='danger'] { color: var(--dsw-alias-state-error-primary) !important; }
+.llama-btn[data-variant='danger']:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover-danger) !important; }
+
+.llama-btn[data-variant='ghost'] {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: var(--dsw-alias-label-primary) !important;
+}
+.llama-btn[data-variant='ghost']:hover:not(:disabled) { background: var(--fl-subtle-hover) !important; }
+.llama-btn[data-variant='ghost']:active:not(:disabled) { background: var(--fl-subtle-pressed) !important; }
+
+.llama-btn[data-size='sm'] {
+  min-height: 28px !important;
+  padding: 3px 10px 4px !important;
+  font-size: 13px !important;
+}
+.llama-btn[data-size='icon'] {
+  min-width: 32px !important;
+  min-height: 32px !important;
+  padding: 0 8px !important;
+}
+
+/* ---------- TextBox, ComboBox ---------- */
+
+/* The bottom stroke is darker than the rest and turns into a 2px accent line
+   on focus — the one detail that makes a field read as Windows. */
+.llama-input,
+.llama-app input[type="text"],
+.llama-app input[type="search"],
+.llama-app input[type="number"],
+.llama-app input[type="password"],
+.llama-app select,
+.llama-app textarea,
+.llama-modal-backdrop input[type="text"],
+.llama-modal-backdrop input[type="search"],
+.llama-modal-backdrop input[type="number"],
+.llama-modal-backdrop select,
+.llama-modal-backdrop textarea {
+  min-height: 32px !important;
+  padding: 5px 11px 6px !important;
+  border: 1px solid var(--fl-control-stroke) !important;
+  border-bottom-color: var(--fl-input-stroke-bottom) !important;
+  border-radius: 4px !important;
+  background: var(--fl-input) !important;
+  color: var(--dsw-alias-label-primary) !important;
+  font-size: 14px !important;
+  box-shadow: none !important;
+  outline: none !important;
+  transition: background-color var(--ds-transition-duration-fast) linear !important;
+}
+.llama-input:hover:not(:disabled):not(:focus),
+.llama-app select:hover:not(:disabled):not(:focus),
+.llama-app textarea:hover:not(:disabled):not(:focus) {
+  background: var(--fl-input-hover) !important;
+}
+.llama-input:focus,
+.llama-app input:focus,
+.llama-app select:focus,
+.llama-app textarea:focus,
+.llama-modal-backdrop input:focus,
+.llama-modal-backdrop select:focus,
+.llama-modal-backdrop textarea:focus {
+  background: var(--fl-input-focus) !important;
+  border-bottom: 2px solid var(--dsw-alias-state-business-primary) !important;
+  padding-bottom: 5px !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+.llama-app input[type="checkbox"]:focus,
+.llama-app input[type="radio"]:focus { border-bottom: 0 !important; padding-bottom: 0 !important; }
+.llama-input::placeholder,
+.llama-app input::placeholder { color: var(--dsw-alias-label-secondary); }
+textarea.llama-input { font-family: var(--ds-font-family-code) !important; font-size: 13px !important; }
+
+.llama-field { gap: 6px !important; }
+.llama-field > label {
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  color: var(--dsw-alias-label-primary) !important;
+}
+.llama-settings .llama-field > label { font-weight: 600 !important; }
+.llama-settings .llama-section-title {
+  margin: 28px 0 12px !important;
+  padding-bottom: 8px !important;
+  border-bottom: 1px solid var(--dsw-alias-border-l2) !important;
+  font-size: 14px !important;
+  color: var(--dsw-alias-label-primary) !important;
+}
+.llama-settings .llama-section-title:first-child { margin-top: 0 !important; }
+
+/* ---------- ToggleSwitch ---------- */
+
+.llama-switch-track {
+  width: 40px !important;
+  height: 20px !important;
+  border: 1px solid var(--fl-switch-off-stroke) !important;
+  border-radius: 10px !important;
+  background: var(--fl-subtle-pressed) !important;
+  transition: background-color var(--ds-transition-duration-fast) linear, border-color var(--ds-transition-duration-fast) linear !important;
+}
+.llama-switch-track::after {
+  top: 3px !important;
+  left: 3px !important;
+  width: 12px !important;
+  height: 12px !important;
+  background: var(--fl-switch-off-knob) !important;
+  box-shadow: none !important;
+  transition: transform var(--ds-transition-duration) var(--ds-ease-in-out), width var(--ds-transition-duration-fast) linear, height var(--ds-transition-duration-fast) linear, top var(--ds-transition-duration-fast) linear, left var(--ds-transition-duration-fast) linear !important;
+}
+.llama-switch:hover .llama-switch-track::after {
+  top: 2px !important;
+  left: 2px !important;
+  width: 14px !important;
+  height: 14px !important;
+}
+.llama-switch input:checked + .llama-switch-track {
+  background: var(--dsw-alias-state-business-primary) !important;
+  border-color: var(--dsw-alias-state-business-primary) !important;
+}
+.llama-switch input:checked + .llama-switch-track::after {
+  background: var(--dsw-alias-label-primary-foreground) !important;
+  transform: translateX(20px) !important;
+}
+.llama-switch:hover input:checked + .llama-switch-track::after { transform: translateX(20px) !important; }
+.llama-switch input:focus-visible + .llama-switch-track {
+  outline: 2px solid var(--fl-focus-outer);
+  outline-offset: 2px;
+}
+.llama-switch input:disabled + .llama-switch-track { opacity: 0.4; }
+.llama-switch-label { font-size: 14px !important; }
+
+.llama-switch-row {
+  padding: 12px 0 !important;
+  border-bottom: 1px solid var(--dsw-alias-border-l1) !important;
+}
+.llama-settings .llama-switch-label { font-size: 14px !important; }
+
+.llama-check { font-size: 14px !important; }
+.llama-app input[type="checkbox"] { accent-color: var(--dsw-alias-state-business-primary); }
+
+/* ---------- SelectorBar (the Logs stream filter) ---------- */
+
+/* Text items with a short accent pill under the selected one. */
+.llama-seg,
+.llama-tabs {
+  gap: 4px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+.llama-seg button,
+.llama-tab {
+  position: relative !important;
+  min-height: 36px;
+  padding: 6px 12px 10px !important;
+  border: 0 !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  color: var(--dsw-alias-label-secondary) !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  box-shadow: none !important;
+}
+.llama-seg button:hover,
+.llama-tab:hover { background: var(--fl-subtle-hover) !important; color: var(--dsw-alias-label-primary) !important; }
+.llama-seg button[data-active='1'],
+.llama-tab[data-active='1'] {
+  background: transparent !important;
+  color: var(--dsw-alias-label-primary) !important;
+  font-weight: 600 !important;
+  box-shadow: none !important;
+}
+.llama-seg button[data-active='1']::after,
+.llama-tab[data-active='1']::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: 16px;
+  height: 3px;
+  margin-left: -8px;
+  border-radius: 2px;
+  background: var(--dsw-alias-state-business-primary);
+}
+
+/* ---------- badges and tags ---------- */
+
+.llama-pill {
+  padding: 2px 8px !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: var(--dsw-alias-interactive-bg-hover-solid) !important;
+  color: var(--dsw-alias-label-secondary) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: normal !important;
+  box-shadow: none !important;
+}
+.llama-pill::before { animation: none !important; }
+.llama-pill[data-tone='ok'] { background: var(--fl-success-bg) !important; color: var(--dsw-alias-state-success-primary) !important; }
+.llama-pill[data-tone='warn'] { background: var(--fl-caution-bg) !important; color: var(--dsw-alias-state-warn-primary) !important; }
+.llama-pill[data-tone='err'] { background: var(--fl-critical-bg) !important; color: var(--dsw-alias-state-error-primary) !important; }
+.llama-pill[data-tone='accent'] {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 12%, transparent) !important;
+  color: var(--dsw-alias-state-business-primary) !important;
+}
+
+.llama-tag {
+  padding: 2px 8px !important;
+  border: 0 !important;
+  border-radius: 4px !important;
+  background: var(--dsw-alias-bg-module-platform) !important;
+  color: var(--dsw-alias-label-secondary) !important;
+  font-family: inherit !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  font-variant-numeric: tabular-nums;
+}
+/* A tag beside a field names the llama-server flag behind it — that one is code. */
+.llama-field > label .llama-tag,
+.llama-switch-label .llama-tag,
+.llama-flag .llama-tag {
+  font-family: var(--ds-font-family-code) !important;
+  font-size: 11.5px !important;
+}
+
+/* ==========================================================================
+   Lists
+   ========================================================================== */
+
+/* ---------- model rows ---------- */
+
+.llama-models-list { max-width: none !important; gap: 4px !important; }
+.llama-model {
+  max-width: none !important;
+  padding: 14px 18px !important;
+  gap: 10px !important;
+  border: 1px solid var(--fl-card-stroke) !important;
+  border-radius: 7px !important;
+  background: var(--fl-card) !important;
+  box-shadow: none !important;
+  transform: none !important;
+  transition: background-color var(--ds-transition-duration-fast) linear !important;
+}
+.llama-model:hover {
+  background: var(--fl-card-hover) !important;
+  border-color: var(--fl-card-stroke) !important;
+  box-shadow: none !important;
+}
+.llama-model::before { content: none !important; }
+.llama-model[data-running='1'],
+.llama-model:has(.llama-pill[data-tone='ok']) {
+  border-color: var(--dsw-alias-state-success-primary) !important;
+  background: var(--fl-card) !important;
+}
+.llama-model[data-missing='1'] { border-color: var(--dsw-alias-state-error-primary) !important; }
+.llama-model-name { font-size: 14px !important; font-weight: 600 !important; letter-spacing: normal !important; }
+.llama-model-path { font-size: 12px !important; color: var(--dsw-alias-label-caption) !important; }
+.llama-model-meta { gap: 4px !important; }
+.llama-model-actions { gap: 4px !important; }
+
+/* Inside a card (the Dashboard's router list) the models are the card's rows,
+   divided by hairlines, rather than cards stacked inside a card. */
+.llama-card .llama-stack:has(> .llama-model) { gap: 0 !important; }
+.llama-card .llama-model {
+  padding: 12px 0 !important;
+  border: 0 !important;
+  border-top: 1px solid var(--dsw-alias-border-l1) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+.llama-card .llama-model:first-child { border-top: 0 !important; padding-top: 4px !important; }
+.llama-card .llama-model:last-child { padding-bottom: 0 !important; }
+.llama-card .llama-model:hover { background: transparent !important; }
+
+/* ---------- table ---------- */
+
+.llama-table { font-size: 14px !important; }
+.llama-table th {
+  padding: 8px 12px !important;
+  border-bottom: 1px solid var(--dsw-alias-border-l2) !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  letter-spacing: normal !important;
+  text-transform: none !important;
+  color: var(--dsw-alias-label-secondary) !important;
+}
+.llama-table td { padding: 10px 12px !important; border-bottom: 1px solid var(--dsw-alias-border-l1) !important; }
+.llama-table tbody tr:hover td { background: var(--fl-subtle-hover) !important; }
+
+/* ---------- Expander (collapsible flag sections) ---------- */
+
+.llama-sect {
+  border: 1px solid var(--fl-card-stroke) !important;
+  border-radius: 7px !important;
+  background: var(--fl-card) !important;
+}
+.llama-sect + .llama-sect { margin-top: 4px !important; }
+.llama-sect-head {
+  min-height: 52px;
+  padding: 12px 16px !important;
+  background: var(--fl-card) !important;
+  font-size: 14px !important;
+}
+.llama-sect-head:hover { background: var(--fl-card-hover) !important; }
+.llama-sect-title { font-weight: 400 !important; }
+.llama-sect-chevron { color: var(--dsw-alias-label-primary) !important; }
+.llama-sect-count {
+  padding: 1px 8px !important;
+  background: var(--dsw-alias-state-business-primary) !important;
+  color: var(--dsw-alias-label-primary-foreground) !important;
+  font-size: 12px !important;
+}
+.llama-sect-sub { font-size: 12px !important; color: var(--dsw-alias-label-secondary) !important; }
+.llama-sect-body {
+  padding: 16px 16px 18px 40px !important;
+  border-top: 1px solid var(--dsw-alias-border-l1) !important;
+  background: var(--dsw-alias-bg-layer-2) !important;
+}
+
+/* ---------- flag reference ---------- */
+
+.llama-flags { gap: 4px !important; }
+.llama-flag {
+  padding: 12px 16px !important;
+  border: 1px solid var(--fl-card-stroke) !important;
+  border-radius: 5px !important;
+  background: var(--fl-card) !important;
+}
+.llama-flag:hover { background: var(--fl-card-hover) !important; }
+.llama-flag-name { font-size: 13px !important; color: var(--dsw-alias-state-business-primary) !important; }
+.llama-flag-arg { border-radius: 4px !important; background: var(--dsw-alias-bg-module-platform) !important; }
+.llama-flag-desc { font-size: 13px !important; color: var(--dsw-alias-label-secondary) !important; }
+.llama-flag-meta { font-size: 12px !important; color: var(--dsw-alias-label-secondary) !important; }
+
+/* ---------- server config summary ---------- */
+
+.llama-cfg-summary {
+  padding: 14px 20px !important;
+  border: 1px solid var(--fl-card-stroke) !important;
+  border-radius: 7px !important;
+  background: var(--fl-card) !important;
+}
+.llama-cfg-endpoint span {
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  letter-spacing: normal !important;
+  text-transform: none !important;
+  color: var(--dsw-alias-label-secondary) !important;
+}
+.llama-cfg-endpoint code { font-size: 14px !important; }
+
+.llama-endpoint {
+  border-radius: 4px !important;
+  border: 1px solid var(--fl-control-stroke) !important;
+  border-bottom-color: var(--fl-control-stroke-bottom) !important;
+  background: var(--fl-control) !important;
+  color: var(--dsw-alias-label-primary) !important;
+  font-size: 12px !important;
+}
+.llama-endpoint:hover { background: var(--fl-control-hover) !important; }
+
+/* ---------- logs and code ---------- */
+
+.llama-logs {
+  padding: 12px 16px !important;
+  border: 1px solid var(--fl-card-stroke) !important;
+  border-radius: 7px !important;
+  background: var(--fl-card) !important;
+  font-size: 12.5px !important;
+}
+.llama-code {
+  padding: 10px 14px !important;
+  border: 1px solid var(--dsw-alias-border-l1) !important;
+  border-radius: 4px !important;
+  background: var(--dsw-alias-bg-layer-3) !important;
+  box-shadow: none !important;
+  color: var(--dsw-alias-label-primary) !important;
+  font-family: var(--ds-font-family-code) !important;
+  font-size: 12.5px !important;
+}
+
+/* ---------- file browser ---------- */
+
+.llama-fb-side { background: var(--dsw-alias-bg-layer-2) !important; border-right-color: var(--dsw-alias-border-l2) !important; }
+.llama-fb-side-title {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: normal !important;
+  text-transform: none !important;
+  color: var(--dsw-alias-label-secondary) !important;
+}
+.llama-fb-quick,
+.llama-fb-row { position: relative; border-radius: 4px !important; font-size: 14px !important; }
+.llama-fb-quick:hover,
+.llama-fb-row:hover { background: var(--fl-subtle-hover) !important; }
+.llama-fb-list { border-radius: 4px !important; border-color: var(--fl-card-stroke) !important; background: var(--fl-card) !important; padding: 2px; }
+/* Selection is a tint and the pill, as in File Explorer — not a solid fill. */
+.llama-fb-quick[data-active='1'],
+.llama-fb-row[data-selected='1'] {
+  background: var(--dsw-alias-interactive-bg-hover-solid) !important;
+  color: var(--dsw-alias-label-primary) !important;
+}
+.llama-fb-row[data-selected='1'] .llama-fb-meta { color: var(--dsw-alias-label-secondary) !important; opacity: 1 !important; }
+.llama-fb-row[data-selected='1'] .llama-fb-icon { color: var(--dsw-alias-state-business-primary) !important; }
+.llama-fb-quick[data-active='1']::before,
+.llama-fb-row[data-selected='1']::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 16px;
+  margin-top: -8px;
+  border-radius: 2px;
+  background: var(--dsw-alias-state-business-primary);
+}
+.llama-fb-up {
+  border-radius: 4px !important;
+  border-color: var(--fl-control-stroke) !important;
+  border-bottom-color: var(--fl-control-stroke-bottom) !important;
+  background: var(--fl-control) !important;
+}
+
+.llama-companion {
+  border: 1px solid var(--fl-card-stroke) !important;
+  border-radius: 7px !important;
+  background: var(--dsw-alias-bg-layer-2) !important;
+}
+
+/* ==========================================================================
+   Messages
+   ========================================================================== */
+
+/* ---------- InfoBar ---------- */
+
+/* Neutral surface and ordinary text; the severity is carried by the tinted
+   background and the round glyph, the way Windows does it. */
+.llama-notice {
+  position: relative !important;
+  padding: 12px 16px 12px 44px !important;
+  border: 1px solid var(--fl-info-stroke) !important;
+  border-radius: 6px !important;
+  background: var(--fl-info-bg) !important;
+  color: var(--dsw-alias-label-primary) !important;
+  font-size: 14px !important;
+}
+.llama-notice::before,
+.llama-toast::before {
+  content: 'i';
+  position: absolute;
+  left: 16px;
+  top: 14px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-business-primary);
+  color: var(--dsw-alias-label-primary-foreground);
+  font: 700 11px/16px var(--dsw-font-family);
+  text-align: center;
+}
+.llama-notice[data-tone='warn'] { background: var(--fl-caution-bg) !important; border-color: var(--fl-caution-stroke) !important; color: var(--dsw-alias-label-primary) !important; }
+.llama-notice[data-tone='err'] { background: var(--fl-critical-bg) !important; border-color: var(--fl-critical-stroke) !important; color: var(--dsw-alias-label-primary) !important; }
+.llama-notice[data-tone='ok'] { background: var(--fl-success-bg) !important; border-color: var(--fl-success-stroke) !important; }
+.llama-notice[data-tone='warn']::before,
+.llama-toast[data-tone='warn']::before { content: '!'; background: var(--dsw-alias-state-warn-primary); }
+.llama-notice[data-tone='err']::before,
+.llama-toast[data-tone='err']::before { content: '\00d7'; background: var(--dsw-alias-state-error-primary); font-size: 13px; }
+.llama-notice[data-tone='ok']::before,
+.llama-toast[data-tone='ok']::before { content: '\2713'; background: var(--dsw-alias-state-success-primary); }
+
+/* ---------- toasts ---------- */
+
+.llama-toast {
+  position: relative !important;
+  padding: 12px 16px 12px 44px !important;
+  border: 1px solid var(--dsw-alias-border-l2) !important;
+  border-radius: 8px !important;
+  background: var(--dsw-alias-bg-overlay) !important;
+  box-shadow: var(--dsw-shadow-lv3) !important;
+  font-size: 14px !important;
+}
+.llama-toast[data-tone] { border-left-width: 1px !important; border-left-color: var(--dsw-alias-border-l2) !important; }
+
+/* ---------- ContentDialog ---------- */
+
+.llama-modal-backdrop { backdrop-filter: none !important; }
+.llama-modal {
+  border: 1px solid var(--dsw-alias-border-l2) !important;
+  border-radius: 8px !important;
+  background: var(--dsw-alias-bg-overlay) !important;
+  box-shadow: 0 32px 64px rgba(0, 0, 0, 0.19), 0 2px 21px rgba(0, 0, 0, 0.15) !important;
+}
+.llama-modal-head {
+  padding: 20px 24px 8px !important;
+  border-bottom: 0 !important;
+}
+.llama-modal-head h3 {
+  font-family: var(--fl-font-display) !important;
+  font-size: 20px !important;
+  line-height: 28px !important;
+  font-weight: 600 !important;
+  letter-spacing: normal !important;
+}
+.llama-modal-head .llama-modal-sub { font-size: 12px !important; color: var(--dsw-alias-label-secondary) !important; }
+.llama-modal-body { padding: 8px 24px 24px !important; }
+.llama-modal[data-size='browser'] .llama-modal-body { padding: 0 !important; }
+.llama-modal-foot,
+.llama-modal[data-size='form'] .llama-modal-foot {
+  padding: 20px 24px !important;
+  gap: 8px !important;
+  border-top: 1px solid var(--dsw-alias-border-l2) !important;
+  background: var(--fl-dialog-foot) !important;
+}
+
+/* ==========================================================================
+   Chat page
+   ========================================================================== */
+
+/* The floating controls become a small acrylic-style flyout. */
+.llama-chat-floating-bar,
+.llama-chat-fullscreen-bar {
+  border: 1px solid var(--dsw-alias-border-l2) !important;
+  border-radius: 8px !important;
+  background: var(--dsw-alias-bg-overlay) !important;
+  box-shadow: var(--dsw-shadow-lv3) !important;
+}
+.llama-chat-icon-btn,
+.llama-chat-fullscreen-bar .llama-btn {
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: 4px !important;
+  color: var(--dsw-alias-label-primary) !important;
+}
+.llama-chat-icon-btn:hover { background: var(--fl-subtle-hover) !important; }
+
+/* ==========================================================================
+   Narrow windows
+   ========================================================================== */
+
+@media (max-width: 860px) {
+  .llama-main:not([data-page="chat"])::before {
+    margin-bottom: 16px;
+    font-size: 24px;
+    line-height: 32px;
+  }
+}

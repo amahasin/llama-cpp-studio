@@ -192,7 +192,9 @@
   async function boot() {
     let source
     try {
-      const res = await fetch('/assets/client.bundle.js', { cache: 'no-store' })
+      // no-cache, not no-store: revalidated every load (a re-packed bundle is
+      // never stale) but answered with a 304 when nothing changed.
+      const res = await fetch('/assets/client.bundle.js', { cache: 'no-cache' })
       if (!res.ok) throw new Error('HTTP ' + res.status)
       source = await res.text()
     } catch (e) {
@@ -216,10 +218,14 @@
     }
     // After the plugin's own stylesheet, so these overrides win: the base CSS
     // uses !important throughout and load order alone would not settle it.
-    const mobile = document.createElement('link')
-    mobile.rel = 'stylesheet'
-    mobile.href = '/assets/mobile.css'
-    document.head.appendChild(mobile)
+    // fluent.css is the look; mobile.css comes last so the phone layout has
+    // the final word on the selectors the two share.
+    for (const sheet of ['fluent.css', 'mobile.css']) {
+      const link = document.createElement('link')
+      link.rel = 'stylesheet'
+      link.href = '/assets/' + sheet
+      document.head.appendChild(link)
+    }
 
     const root = window.ReactDOM.createRoot(rootEl)
     root.render(window.React.createElement(Section, {}))
