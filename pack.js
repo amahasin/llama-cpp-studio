@@ -25,13 +25,13 @@ function arg(name) {
   return i === -1 ? undefined : process.argv[i + 1]
 }
 
-// What travels into an `--out` copy. The desktop shell's build tree and the
-// 10MB WebView2 static loader are build inputs, not runtime ones — the copy
-// carries the sources needed to rebuild it, and the already-built exe.
-const COPIED_DIRS = ['src', 'web', 'tests', 'runtime', 'native']
-const COPIED_DIR_EXCLUDES = ['build/', 'vendor/webview2/x64/']
+// What travels into an `--out` copy. The setup program and the launcher are
+// built from installer/ by `node installer/build.js`, not by this script; a
+// launcher left over from such a build travels along if one is here.
+const COPIED_DIRS = ['src', 'web', 'tests', 'runtime']
+const COPIED_DIR_EXCLUDES = []
 const COPIED_FILES = ['package.json', 'README.md', 'PORTABLE.md', 'build.js', 'pack.js',
-  'repair-paths.js', 'start.cmd', 'llama-studio.exe', 'install.ps1', 'install.cmd']
+  'repair-paths.js', 'start.cmd', 'llama-studio.exe']
 
 // The launcher written into a packed folder. It must stay in step with the
 // start.cmd in the repository: this template used to be the console-only
@@ -117,13 +117,13 @@ function selfContain(withNode) {
     '',
     'This folder is self-contained: it carries the llama.cpp manager, its web UI,',
     'React and' + (withNode ? ' the Node runtime' : ' (no Node runtime — install Node 18+)') + '.',
-    'Move it anywhere and run `llama-studio.exe`.',
+    'Move it anywhere and run `start.cmd`.',
     '',
-    'That is the desktop app: its own window, an icon, a tray presence, and the',
-    'server started and stopped with it. `start.cmd` is the same application in a',
-    'console window, opening in your browser instead — useful for a headless box.',
-    'To install it properly (Start menu, uninstall entry, .gguf association) run',
-    '`install.cmd`; the portable folder keeps working either way.',
+    'That starts the app behind a tray icon and opens it in your browser;',
+    '`start.cmd --console` runs it in a console window instead — useful for a',
+    'headless box. For a Start menu entry, starting with Windows, updates and an',
+    'uninstaller, use the setup program from the releases page; the portable',
+    'folder keeps working either way.',
     '',
     '- Models, llama.cpp builds, logs and config all live in `.\\data`, and the',
     '  app never reads or writes outside this folder on its own.',

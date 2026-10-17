@@ -28,3 +28,12 @@ Thumbs.db
 *.swp
 .vscode/
 .idea/
+
+# The GPU worker package `tools/worker/package-worker.ps1` assembles: a copy
+# of its scripts plus the active build's binaries and the CUDA runtime, about
+# 1 GB. Rebuilt on demand, never source.
+/tools/worker/dist/
+
+# Release builds: node installer/build.js writes the setup program, the
+# portable zip and their checksums here. Published as GitHub release assets.
+/dist/

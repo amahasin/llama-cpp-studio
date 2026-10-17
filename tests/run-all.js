@@ -16,7 +16,10 @@ const SUITES = [
   ['secrets.test.js', 'API key and GitHub token redaction, and the save round-trip'],
   ['proxy.test.js', 'llama-server reached through this origin, with the session gate'],
   ['gate.test.js', 'the API key is the front door when Studio is not reached locally'],
+  ['http.test.js', 'CORS on a wildcard bind, asset caching, CLI validation, URLs'],
   ['tray.test.js', 'the system tray reports the real server state, not a fixed one'],
+  ['update.test.js', 'tray updates are verified before they run; start with Windows'],
+  ['release.test.js', 'a release ships the app and nothing else, and the installer compiles'],
   ['idle.test.js', 'an unused model gives its memory back, a busy one never does'],
   ['mtp.test.js', 'multi-token-prediction heads: detection, tagging and the argv'],
   ['progress.test.js', 'the load fraction the router streams, weighted across stages'],
@@ -25,6 +28,7 @@ const SUITES = [
   ['smoke.js', 'boots the real app and drives it over RPC'],
   ['paths.test.js', 'the folder stays self-contained when it moves'],
   ['vision.test.js', 'the per-model vision toggle, end to end'],
+  ['cluster.test.js', 'GPU cluster nodes, RPC flags, security and VRAM scaling'],
   ['router.test.js', 'router mode: presets, model ids, load/unload'],
 ]
 

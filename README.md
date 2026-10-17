@@ -1,23 +1,65 @@
-# llama.cpp Studio — standalone app
+# llama.cpp Studio
 
-The same manager as the DeepSeek Harness plugin, running on its own: install
-official llama.cpp builds, manage GGUF models and their launch flags, start
-`llama-server` with a health-checked lifecycle, watch logs and metrics, and use
-the local OpenAI-compatible API.
+A Windows app for running local LLMs with [llama.cpp](https://github.com/ggml-org/llama.cpp):
+install official llama.cpp builds, manage GGUF models and their launch flags,
+start `llama-server` with a health-checked lifecycle, watch logs and metrics,
+and use the local OpenAI-compatible API. It lives in the system tray and opens
+in your browser.
 
-No harness. No npm install. Nothing to install at all, in fact — double-click
-**`llama-studio.exe`** and it opens in its own window.
+It is the same manager as the DeepSeek Harness llama.cpp plugin, running on its
+own: no harness, no npm install, zero npm dependencies.
+
+## Install
+
+Download **`llama-cpp-studio-<version>-setup.exe`** from the
+[latest release](https://github.com/amahasin/llama-cpp-studio/releases/latest)
+and run it.
+
+- It installs **for your account only**, into
+  `%LOCALAPPDATA%\Programs\llama.cpp Studio`, so there is no administrator
+  prompt. The app keeps its models, builds and settings in a `data` folder
+  beside itself, and under Program Files that folder would not be writable.
+- You get a Start menu entry, an optional desktop shortcut, and an *Installed
+  apps* entry that uninstalls cleanly.
+- It **starts with Windows** unless you untick that in setup. You can change it
+  from the tray at any time.
+- It carries its own Node runtime, so there is nothing else to install.
+
+The setup program is not code-signed, so SmartScreen may warn about an
+unrecognised app the first time; choose *More info › Run anyway*. To check the
+download first, compare its hash with `SHA256SUMS.txt` from the same release:
 
 ```powershell
-.\install.cmd                 # Start menu, uninstall entry, .gguf association
+Get-FileHash .\llama-cpp-studio-1.0.0-setup.exe -Algorithm SHA256
 ```
 
-It runs perfectly well without installing: the folder is the application, and
-you can carry it on a USB stick. See **Desktop app** below for what the window
-adds, and **Self-contained / portable** for what moving the folder does.
+If you'd rather not run an installer, `llama-cpp-studio-<version>-win-x64.zip`
+is the same app as a portable folder. Unzip it anywhere and run
+`llama-studio.exe`.
 
-To run it as a plain local server instead — headless box, remote machine,
-anything where a browser tab is the right answer — `start.cmd` does that:
+## Using it
+
+`llama-studio.exe` (the Start menu entry) starts the app behind a tray icon and
+opens the UI in your browser. Running it again while the app is up just opens
+the UI, because there is only ever one copy running per folder.
+
+Right-click the tray icon for:
+
+| Item | What it does |
+|---|---|
+| **Open Web UI** | the app in your browser (a left click does the same) |
+| Open Models Folder, Open Data Folder | those folders in Explorer |
+| Start with Windows | start the app when you sign in, without opening a browser tab |
+| Check for Updates... | look for a newer release and offer to install it |
+| Exit llama.cpp Studio | stop llama-server cleanly, then the app |
+
+When it starts at sign-in, the app brings the server up and waits in the tray.
+It does not open a browser until you click the icon. If you turn it off under
+*Settings › Apps › Startup*, the tray shows the item unticked, and ticking it
+again turns it back on.
+
+To run it as a plain local server instead (a headless box, a remote machine,
+anywhere a console is the right answer), use `start.cmd --console`:
 
 ```
   llama.cpp Studio 1.0.0
@@ -29,101 +71,78 @@ anything where a browser tab is the right answer — `start.cmd` does that:
   Press Ctrl+C to stop.
 ```
 
-## Desktop app
+## Updates
 
-`llama-studio.exe` is a native Win32 shell around the same UI: a real window
-with the app's icon, a taskbar button you can pin, a tray icon, and the system's
-own title bar following your light/dark setting.
+The tray checks GitHub for a new release a few minutes after it starts, then
+once a day. It only ever offers an update: a notification says a new version
+is out, and **Install Update** in the tray menu (or a click on the notification)
+shows the release notes and asks first. **Check for Updates** asks GitHub
+straight away. Each check sends GitHub only a User-Agent naming the app and
+its version.
 
-It hosts **WebView2** rather than bundling a browser. Windows 11 ships that
-runtime as an OS component and patches it through Windows Update, so the shell
-is a 320KB executable with no DLL beside it — bundling Chromium would have added
-150MB and ended the "copy the folder anywhere" story for a window.
+When you say yes, the tray:
 
-Three things it is careful about:
+1. downloads the new setup program into `%TEMP%`;
+2. checks its size and SHA-256 against what GitHub records for that release
+   asset, or against the release's `SHA256SUMS.txt`. A file that does not match
+   is deleted and never run;
+3. runs it with `/update`. Setup unpacks the new version beside the old one
+   while the app keeps running. It then asks the tray to close, which stops
+   llama-server cleanly, swaps the two versions in seconds, and starts the app
+   again.
 
-- **The server's lifetime is the window's.** The Node process is started with a
-  pipe on its stdin and placed in a job object. Closing the window closes the
-  pipe, which asks for a clean stop so `llama-server` releases its VRAM
-  properly; the job object guarantees that even a crash of the shell takes the
-  whole tree with it rather than leaving a model resident.
-- **The port is never guessed.** The server is told `--port 0` and the name of a
-  file to write its URL into, and the shell waits for that file. Picking a port
-  and hoping is how a desktop shell ends up showing a blank window.
-- **Nothing escapes the data folder** — including WebView2's own user-data
-  directory, which defaults to `%LOCALAPPDATA%` and would quietly break a
-  portable copy. It lives in `data\desktop\` with the rest.
+The `data` folder, with your models, llama.cpp builds and settings, is never
+touched. A copy running from a git checkout is not updated by setup; the tray
+tells you to `git pull` instead.
 
-Right-click the tray icon for *Keep running when the window is closed* — worth
-turning on when a model takes minutes to load and closing the window should not
-throw that away.
+## Uninstall
 
-Building the shell needs Visual Studio Build Tools with the C++ workload; the
-WebView2 SDK is vendored, so nothing is fetched:
+Use *Settings › Apps › Installed apps › llama.cpp Studio › Uninstall*, or run
+`uninstall.exe` in the install folder. It:
 
-```powershell
-native\build.cmd              # -> llama-studio.exe
-native\build-installer.cmd    # -> llama-cpp-studio-setup.exe (builds the app first)
-node native\make-icon.js      # re-render the icon after editing its geometry
-```
+- closes the app;
+- removes exactly the files setup installed, the shortcuts, the startup entry
+  and the Apps entry;
+- **asks** before deleting your models and settings. The default is to keep
+  them, and installing into the same folder again picks them up.
 
-## Setup program
+`uninstall.exe /S` uninstalls silently and always keeps the data.
 
-`native\build-installer.cmd` produces **`llama-cpp-studio-setup.exe`** — a single
-33 MB file that installs the application on any Windows machine. Copy it to a USB
-stick, a phone, a share; it needs nothing on the target but Windows.
-
-It carries the whole application as a linked-in resource, unpacks it to a
-temporary folder with `tar.exe` — in System32 since Windows 10 1803, and the same
-tool the app uses for llama.cpp releases — and then runs `install.ps1` from it.
-
-That last part is the design. Everything an install *does* already lives in
-`install.ps1`, is tested, and has to keep working for anyone who unpacks the
-folder and installs it by hand. Reimplementing it in C++ would give two
-implementations of one install, drifting apart, creating the shortcut one way
-from Setup and another from the script. So the setup program owns what a script
-cannot do — a real dialog, a progress bar, no console flashing past — and
-delegates the rest.
-
-It asks about the desktop shortcut, starting at sign-in, and taking over `.gguf`,
-then installs per-user with **no UAC prompt**. That last point needs the manifest:
-Windows auto-elevates any unmanifested executable whose name looks like *setup*,
-so an explicit `requestedExecutionLevel` is what keeps a per-user install from
-demanding administrator for no reason. It also warns, without blocking, if the
-WebView2 runtime is missing — that only happens on Windows older than 11.
-
-`make-payload.js` stages the distribution from this tree: whole `src\`, `web\`
-and `runtime\` (minus the harness loader the standalone app never uses), the
-executable, the icon, `install.ps1`, the distribution README from
-`native\dist\`, and a `package.json` trimmed to what the app actually reads. The
-staging is what keeps the setup program reproducible — there is no hand-curated
-folder anyone has to remember to update.
-
-## Installing
+## Building a release
 
 ```powershell
-.\install.cmd                       # per-user, with a desktop shortcut
-.\install.ps1                       # same, without the desktop shortcut
-.\install.ps1 -RunAtLogin           # start it when you sign in
-.\install.ps1 -DefaultForGguf       # .gguf files open here by default
-.\install.ps1 -Uninstall            # remove it again
+node installer\build.js        # or: npm run release
 ```
 
-It installs **per user**, into `%LOCALAPPDATA%\Programs\llama.cpp Studio` — no
-administrator, no UAC prompt. That is not laziness: the app keeps its models,
-builds and logs in a `data` folder beside itself, and under Program Files that
-folder would not be writable without either elevating or scattering the data
-somewhere else. Per-user keeps the layout identical to the portable folder, so
-the two really are the same application.
+This writes `dist\llama-cpp-studio-<version>-setup.exe`, the portable zip and
+`SHA256SUMS.txt`, for the version in `package.json`. Everything it needs ships
+with Windows:
 
-You get a Start menu entry, an optional desktop shortcut, a proper **Add or
-remove programs** entry that uninstalls cleanly, and `.gguf` files listed under
-*Open with*. Uninstalling asks before deleting your models — answer no and the
-data folder is moved aside rather than removed.
+- The launcher (`llama-studio.exe`), the setup program and the uninstaller are
+  C# 5 (`installer\*.cs`), compiled by the `csc.exe` inside .NET Framework 4.x.
+  No Visual Studio, WiX or Inno Setup is needed.
+- The icon is rendered by `installer\make-icon.ps1` from the tray's own drawing
+  of the mark, so the exe, the tray and `web/icon.svg` cannot drift apart.
+- The zips are written by Windows PowerShell.
 
-An installed copy has its own empty `data` folder. To bring an existing library
-across, copy your `data` folder into the install location, or point the app at
-the old one with `--data`.
+It bundles the `node.exe` that runs it (or the one given with `--node <path>`).
+It refuses to finish if any binary or staged file contains a path from the
+build machine, such as your user profile or the checkout's location. To publish:
+
+```powershell
+gh release create v1.0.1 dist\llama-cpp-studio-1.0.1-setup.exe `
+  dist\llama-cpp-studio-1.0.1-win-x64.zip dist\SHA256SUMS.txt
+```
+
+The tray finds releases through `repository` in `package.json`, so a fork
+publishes its own updates without changing any code. For scripted installs,
+setup takes:
+
+```
+setup.exe /S [/dir=PATH] [/autostart=0|1] [/desktop=0|1] [/launch]
+setup.exe /update /dir=PATH [/waitpid=N]       what the tray's Install Update runs
+uninstall.exe [/S]
+```
 
 ## How it works
 
@@ -138,15 +157,19 @@ standalone/
 │   ├── host.js              loads ../src/host/**  →  Manager on local services
 │   ├── idle.js              releases a model nobody is using
 │   ├── server.js            binds the socket, assembles the routes below
+│   ├── tray.ps1             the tray icon and its menu; one instance per folder
+│   ├── update.ps1           release check, verified download, start with Windows
 │   ├── lib/
 │   │   ├── layout.js        every path, and packed-vs-in-place detection
 │   │   ├── fsx.js           norm/isInside/readJson/copyDir and friends
 │   │   ├── args.js          table-driven option parsing for both CLIs
+│   │   ├── settings.js      the server settings, read one fail-safe way
+│   │   ├── net.js           wildcard binds, dialable URLs, LAN addresses
 │   │   └── platform.js      this app is Windows-only, said up front
 │   ├── cli/
 │   │   ├── options.js       the llama-studio option table and --help
 │   │   ├── banner.js        the startup block, formatted from `status`
-│   │   ├── endpoint.js      the {url, port, pid} file a desktop shell reads
+│   │   ├── endpoint.js      the {url, port, pid} file the tray waits for
 │   │   └── browser.js       hands the URL to the desktop
 │   ├── http/
 │   │   ├── routes.js        /, /assets/*, /api/rpc, /api/health
@@ -166,22 +189,18 @@ standalone/
 │   ├── index.html           app shell
 │   ├── app.js               styles/host/ctx shims, mounts the plugin UI,
 │   │                        and the mobile navigation drawer
-│   ├── mobile.css           the phone/tablet layout (loaded after the plugin's)
+│   ├── fluent.css           the Windows 11 look, applied over the plugin's CSS
+│   ├── mobile.css           the phone/tablet layout (loaded after fluent.css)
 │   ├── icon.svg             the app mark — tab, home screen, manifest
 │   ├── manifest.webmanifest "Add to Home Screen" metadata
-│   ├── theme.css            the --dsw-* design tokens, light + dark
+│   ├── theme.css            the --dsw-* design tokens (Fluent), light + dark
 │   └── vendor/              React 18 UMD (copied by build.js, MIT)
-├── native/                  the desktop shell and the setup program
-│   ├── llama-studio.cpp     Win32 window + WebView2 + tray + backend lifetime
-│   ├── build.cmd            compiles it with MSVC; no network, no packages
-│   ├── make-icon.js         renders llama-studio.ico at every size Windows asks for
-│   ├── llama-studio.rc      icon, manifest and version block
-│   ├── installer.cpp        setup: dialog, unpack, delegate to install.ps1
-│   ├── make-payload.js      stages the distribution and zips it for the installer
-│   ├── build-installer.cmd  -> llama-cpp-studio-setup.exe
-│   ├── dist/README.md       the README that ships to users
-│   └── vendor/webview2/     the four SDK files build.cmd needs
-├── install.ps1  install.cmd per-user install, shortcuts, uninstall entry
+├── installer/               the release: launcher, setup, uninstaller (C# 5)
+│   ├── build.js             stages the app, compiles, zips -> dist\
+│   ├── Setup.cs             setup window, /S, /update; the uninstaller too
+│   ├── Launcher.cs          llama-studio.exe: starts the tray with no console
+│   ├── make-icon.ps1        the .ico, from the tray's own drawing of the mark
+│   └── app.manifest         asInvoker (no UAC prompt), DPI-aware, Windows 10/11
 ├── tools/
 │   └── patch-client-bundle.js  re-applies this app's fixes to the vendored UI
 ├── build.js                 rebuilds plugin bundles, vendors React
@@ -196,7 +215,10 @@ standalone/
     ├── secrets.test.js      secret redaction, and the save round-trip
     ├── proxy.test.js        llama-server through this origin, session gate intact
     ├── gate.test.js         the API key as the front door when Studio is not local
+    ├── http.test.js         CORS on a wildcard bind, asset caching, CLI validation
     ├── tray.test.js         the tray reports the real state, not a fixed one
+    ├── update.test.js       updates are verified before they run; start with Windows
+    ├── release.test.js      a release ships the app and nothing else; setup compiles
     ├── idle.test.js         an unused model gives its memory back; a busy one does not
     ├── mtp.test.js          MTP head detection, tagging and the draft-model argv
     ├── progress.test.js     the load fraction the router streams, across stages
@@ -212,6 +234,14 @@ unmodified — the app and the harness plugin can never drift apart. Because the
 UI paints from `--dsw-alias-*` tokens, `web/theme.css` simply defines that same
 contract, and the header's Theme button switches light / dark / system.
 
+The app looks like a Windows 11 application rather than the plugin's own web
+styling. `web/theme.css` holds the Fluent palette — Mica, the content layer,
+the system-blue accent, light and dark — and `web/fluent.css` restyles the
+plugin's UI by its class names: the navigation pane with the selection pill, a
+page title on every page, Fluent buttons, text boxes and toggle switches,
+InfoBars for notices, ContentDialog for dialogs. The bundle is not modified for
+any of it, so a re-pack cannot undo it.
+
 ## Self-contained / portable
 
 ```powershell
@@ -222,21 +252,20 @@ That vendors everything the app needs into the folder itself:
 
 ```
 standalone\
-├── llama-studio.exe     the desktop app — double-click this
-├── install.cmd          optional: Start menu, uninstall entry, .gguf
-├── start.cmd            the same app in a console, opening your browser
+├── start.cmd            starts the app in the tray; --console for a console
 ├── runtime\
 │   ├── node.exe         the Node runtime (~87 MB)
 │   ├── host\            the plugin's host modules
 │   └── client.bundle.js the UI
-├── src\  web\  tests\  native\
+├── src\  web\  tests\
 ├── PORTABLE.md
 └── data\                created on first run once the folder is moved out
 ```
 
 Now **move the folder anywhere** — another drive, a USB stick, another PC — and
-run `llama-studio.exe`. Nothing needs to be installed; on Windows 11 the
-WebView2 runtime the window uses is already part of the OS.
+run `start.cmd`. Nothing needs to be installed. The portable zip on the
+releases page is this same layout, plus `llama-studio.exe` to start it without
+a console window.
 
 ### Moving a folder that already holds data
 
@@ -565,7 +594,8 @@ whether or not anyone is using it — one question in the morning can keep the
 whole card occupied all day. **Server Config › Unload an idle model after**
 sets how long a model may sit unused before its memory is given back. It
 defaults to **30 minutes**; `0` keeps models loaded forever, which is the old
-behaviour.
+behaviour. The setting is read on every check, so a change applies within half
+a minute — including switching it on from `0` — without restarting the app.
 
 What "unload" means depends on the mode, and the difference matters:
 
@@ -585,6 +615,9 @@ or one still queued, is never unloaded out from under.
 llama-studio --idle-unload 15   # override the saved setting for this run
 llama-studio --idle-unload 0    # keep models loaded
 ```
+
+`--idle-unload` pins the timeout for that run; while it is given, changing the
+setting in Server Config waits for the next start.
 
 llama.cpp has its own `--sleep-idle-seconds`, which you can still pass through
 Advanced options if you would rather `llama-server` handled it; this setting is
@@ -621,9 +654,20 @@ The UI is responsive below 860px: the sidebar becomes a drawer behind a button
 in the top-left, everything laid out in columns collapses to one, inputs are
 16px so iOS does not zoom on focus, and the safe-area insets are respected on a
 notched screen. `web/mobile.css` holds all of it and is loaded *after* the
-plugin's own stylesheet, which uses `!important` throughout. Adding it to the
+plugin's own stylesheet, which uses `!important` throughout, and after
+`web/fluent.css`, so the phone layout wins where the two meet. Adding it to the
 home screen gives a standalone window with the app icon
 (`web/manifest.webmanifest`).
+
+To reach it from a phone, bind every interface with `--host 0.0.0.0`. The
+startup banner then lists the addresses to type under **On network**, and the
+browser on this machine is still opened at `127.0.0.1` — `http://0.0.0.0:…` is
+not an address browsers will load. A wildcard bind does not open the app to
+other websites: a request is only treated as the app's own when its `Origin`
+names the address it was sent to, so a page elsewhere cannot read the session
+token through your browser. Scripts, React and the stylesheets are served with
+an `ETag`, so a reload over Wi-Fi or a tunnel costs a `304` instead of the whole
+download; the page itself, which carries the session token, is never cached.
 
 **The Chat tab is proxied, not linked.** It embeds llama.cpp's own web UI, and
 it used to point the frame straight at the address llama-server binds —
@@ -647,8 +691,9 @@ keep working from inside the frame.
 
 ## System tray
 
-`start.cmd` launches the app behind a tray icon (`src/tray.ps1`);
-`start.cmd --console` runs it in the foreground instead. The tray polls the
+`llama-studio.exe` and `start.cmd` launch the app behind a tray icon
+(`src/tray.ps1`); `start.cmd --console` runs it in the foreground instead. The
+menu is described under **Using it** above. The tray polls the
 app every four seconds and shows what is actually happening — it used to
 assert "Router Running" the moment it started and never look again, which is
 what it said whether or not a router existed.
@@ -663,9 +708,16 @@ what it said whether or not a router existed.
 It reads the session token out of the page the app serves, the same way the
 browser does, and re-reads it if the app restarts and mints a new one.
 
+There is one tray per folder. It holds a named mutex derived from the folder's
+path, and a second launch signals the first to open the UI and then exits. The
+setup program derives the same name from the folder it is about to replace,
+which is how it asks a running copy to close before it swaps the files. The
+release check and the download run in a background runspace, so the menu never
+waits on the network.
+
 ## The app icon
 
-A llama in profile on a rounded indigo tile — llama.cpp's identity is the
+A llama in profile on a rounded tile in the Windows accent blue — llama.cpp's identity is the
 llama, and the tile is the "Studio" half: a workbench the runtime sits in. It
 is drawn in profile rather than front-on because the long neck and long muzzle
 are what keep it readable at 16px; a front-facing version reads as a cat.
@@ -784,8 +836,17 @@ node tests\vision.test.js          # the per-model vision toggle, end to end
 node tests\router.test.js          # router mode: presets, ids, load/unload
 node tests\units.test.js           # the pure modules, no app boot
 node tests\secrets.test.js         # secret redaction and its round trip
-npm test                           # all fifteen, with a summary table
+node tests\update.test.js          # update checks, verified downloads, autostart
+node tests\release.test.js         # what a release ships; the installer compiles
+npm test                           # every suite, with a summary table
 ```
+
+`update.test.js` downloads from `file://` URLs, so the size and checksum checks
+run for real without touching the network: a tampered or truncated file is
+refused and deleted, and an update with no published checksum is not installed
+at all. It writes the startup entry under a throwaway registry key, never the
+real one, and it compiles the setup program's instance-key function to check
+that it matches the tray's.
 
 `units.test.js` is the fast one and needs nothing installed: it feeds generated
 GGUF headers to the parser (including truncated, mis-typed and lying ones), runs

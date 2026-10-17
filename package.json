@@ -4,6 +4,14 @@
   "private": true,
   "type": "commonjs",
   "description": "Standalone local application for llama.cpp: install official builds, manage GGUF models and their launch flags, run llama-server and use its OpenAI-compatible API. Zero npm dependencies — built from the DeepSeek Harness llama.cpp plugin.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/amahasin/llama-cpp-studio.git"
+  },
+  "homepage": "https://github.com/amahasin/llama-cpp-studio#readme",
+  "bugs": {
+    "url": "https://github.com/amahasin/llama-cpp-studio/issues"
+  },
   "bin": {
     "llama-studio": "src/main.js"
   },
@@ -15,7 +23,8 @@
     "test": "node tests/run-all.js",
     "test:units": "node tests/units.test.js",
     "lint": "npx --yes eslint .",
-    "patch-ui": "node tools/patch-client-bundle.js"
+    "patch-ui": "node tools/patch-client-bundle.js",
+    "release": "node installer/build.js"
   },
   "engines": {
     "node": ">=18"
