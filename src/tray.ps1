@@ -53,8 +53,17 @@ $UserAgent = "llama-cpp-studio/$AppVersion (update check)"
 # this file once it is actually listening, and deletes it when it stops.
 $EndpointFile = Join-Path $env:TEMP ("llama-studio-" + [guid]::NewGuid().ToString("N") + ".json")
 
-# How long to wait for the backend to come up before giving up on it.
-$StartupTimeoutSec = 90
+# A backend that was killed rather than stopped (a crash, signing out) never
+# deleted its file. Nothing reads one again after startup, so old ones go.
+Get-ChildItem -LiteralPath $env:TEMP -Filter 'llama-studio-*.json' -ErrorAction SilentlyContinue |
+    Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-2) } |
+    Remove-Item -Force -ErrorAction SilentlyContinue
+
+# How long to wait for the backend to start listening. That covers loading the
+# config, a hardware probe and opening the socket, not llama-server: main.js
+# starts the router only after it has said where it is. Still generous, because
+# right after sign-in everything on the machine is starting at once.
+$StartupTimeoutSec = 120
 
 function Get-NodeExe {
     $bundled = Join-Path $AppRoot "runtime\node.exe"
@@ -62,10 +71,48 @@ function Get-NodeExe {
     return "node"
 }
 
-# Start the backend and wait for it to publish its endpoint. Returns
-# @{ proc; url } or $null. `PortArg` of 0 lets the OS pick a free port.
+# A message box with no owner can open behind whatever has focus, which from a
+# tray icon is everything. A hidden topmost form keeps it in front.
+function Show-Message([string]$Text, [string]$Buttons = 'OK', [string]$Icon = 'Information') {
+    $owner = New-Object System.Windows.Forms.Form
+    $owner.TopMost = $true
+    $owner.ShowInTaskbar = $false
+    $owner.StartPosition = 'Manual'
+    $owner.Location = New-Object System.Drawing.Point(-32000, -32000)
+    $owner.Size = New-Object System.Drawing.Size(1, 1)
+    $owner.Show()
+    try {
+        return [System.Windows.Forms.MessageBox]::Show($owner, $Text, 'llama.cpp Studio', $Buttons, $Icon)
+    } finally {
+        $owner.Dispose()
+    }
+}
+
+# Stop a backend we gave up on together with everything it started. Kill() on
+# Node alone would leave a half-started llama-server holding the GPU.
+function Stop-ProcessTree([System.Diagnostics.Process]$Proc) {
+    if (-not $Proc -or $Proc.HasExited) { return }
+    $taskkill = Join-Path $env:SystemRoot 'System32\taskkill.exe'
+    try { & $taskkill /PID $Proc.Id /T /F 2>&1 | Out-Null } catch {}
+    try { if (-not $Proc.WaitForExit(5000)) { $Proc.Kill() } } catch {}
+}
+
+# What main.js has written to the endpoint file so far, or $null.
+function Read-EndpointFile {
+    if (-not (Test-Path -LiteralPath $EndpointFile)) { return $null }
+    try {
+        return Get-Content -Raw -LiteralPath $EndpointFile | ConvertFrom-Json
+    } catch {
+        # Written but not yet flushed: look again on the next tick.
+        return $null
+    }
+}
+
+# Start the backend and wait for it to say where it is listening, or why it
+# cannot. Returns @{ proc; url } when it is up and @{ error; code } when it is
+# not. `PortArg` of 0 lets the OS pick a free port.
 function Start-Backend([string]$PortArg) {
-    if (Test-Path $EndpointFile) { Remove-Item $EndpointFile -Force -ErrorAction SilentlyContinue }
+    Remove-Item -LiteralPath $EndpointFile -Force -ErrorAction SilentlyContinue
 
     $mainJs = Join-Path $ScriptDir "main.js"
     $startInfo = New-Object System.Diagnostics.ProcessStartInfo
@@ -78,26 +125,36 @@ function Start-Backend([string]$PortArg) {
     # clean shutdown, so llama-server releases its VRAM before we go.
     $startInfo.RedirectStandardInput = $true
 
-    $proc = [System.Diagnostics.Process]::Start($startInfo)
-    if ($null -eq $proc) { return $null }
+    $proc = $null
+    try {
+        $proc = [System.Diagnostics.Process]::Start($startInfo)
+    } catch {
+        return @{ error = 'Node could not be started: ' + $_.Exception.Message }
+    }
+    if ($null -eq $proc) { return @{ error = 'Node could not be started.' } }
 
     $deadline = (Get-Date).AddSeconds($StartupTimeoutSec)
     while ((Get-Date) -lt $deadline) {
-        if ($proc.HasExited) { return $null }
-        if (Test-Path $EndpointFile) {
-            try {
-                $info = Get-Content -Raw -LiteralPath $EndpointFile | ConvertFrom-Json
-                if ($info.url) { return @{ proc = $proc; url = [string]$info.url } }
-            } catch {
-                # Written but not yet flushed — look again on the next tick.
-            }
+        $exited = $proc.HasExited
+        # Read after looking at the process, so a reason written just before
+        # it exited is still seen.
+        $info = Read-EndpointFile
+        if ($info -and $info.url) { return @{ proc = $proc; url = [string]$info.url } }
+        if ($info -and $info.error) {
+            Stop-ProcessTree $proc
+            Remove-Item -LiteralPath $EndpointFile -Force -ErrorAction SilentlyContinue
+            return @{ error = [string]$info.error; code = [string]$info.code }
+        }
+        if ($exited) {
+            return @{ error = "The app stopped while starting (exit code $($proc.ExitCode))." }
         }
         Start-Sleep -Milliseconds 200
     }
 
-    # Never came up. Do not leave it running behind the tray.
-    try { if (-not $proc.HasExited) { $proc.Kill() } } catch {}
-    return $null
+    # Never came up. Do not leave it, or anything it started, behind the tray.
+    Stop-ProcessTree $proc
+    Remove-Item -LiteralPath $EndpointFile -Force -ErrorAction SilentlyContinue
+    return @{ error = "The app did not start listening within $StartupTimeoutSec seconds." }
 }
 
 # 1. Is one already running on the usual port? If so, just attach to it.
@@ -111,16 +168,20 @@ try {
 } catch {}
 
 if (-not $IsRunning) {
-    # Preferred port first, so the URL stays the familiar one. If that fails —
-    # most often because something else holds it — let the OS choose instead of
-    # showing a tray icon for a server that never started.
+    # Preferred port first, so the URL stays the familiar one. Only when that
+    # port is taken (the one failure another port fixes) let the OS choose.
+    # Retrying on anything else just doubled the wait before the same error.
     $started = Start-Backend $Port
-    if ($null -eq $started) { $started = Start-Backend "0" }
+    if (-not $started.url -and $started.code -eq 'EADDRINUSE') { $started = Start-Backend "0" }
 
-    if ($null -eq $started) {
-        [System.Windows.Forms.MessageBox]::Show(
-            "llama.cpp Studio could not start.`n`nRun start.cmd --console to see why.",
-            "llama.cpp Studio", 'OK', 'Error') | Out-Null
+    if (-not $started.url) {
+        $logs = Join-Path $AppRootPath 'data\logs'
+        $answer = Show-Message ("llama.cpp Studio could not start.`n`n" + $started.error +
+            "`n`nThe app's logs are in $logs. Open that folder?") 'YesNo' 'Error'
+        if ($answer -eq 'Yes') {
+            $folder = if (Test-Path -LiteralPath $logs) { $logs } else { $AppRootPath }
+            Start-Process explorer.exe -ArgumentList "`"$folder`""
+        }
         exit 1
     }
 
@@ -404,24 +465,9 @@ function Close-Tray {
     $timer.Stop(); $signalTimer.Stop(); $updateTimer.Stop()
     $notifyIcon.Visible = $false
     $notifyIcon.Dispose()
+    # main.js deletes it on a clean stop; this covers one it could not.
+    Remove-Item -LiteralPath $EndpointFile -Force -ErrorAction SilentlyContinue
     [System.Windows.Forms.Application]::Exit()
-}
-
-# A message box with no owner can open behind whatever has focus, which from a
-# tray icon is everything. A hidden topmost form keeps it in front.
-function Show-Message([string]$Text, [string]$Buttons = 'OK', [string]$Icon = 'Information') {
-    $owner = New-Object System.Windows.Forms.Form
-    $owner.TopMost = $true
-    $owner.ShowInTaskbar = $false
-    $owner.StartPosition = 'Manual'
-    $owner.Location = New-Object System.Drawing.Point(-32000, -32000)
-    $owner.Size = New-Object System.Drawing.Size(1, 1)
-    $owner.Show()
-    try {
-        return [System.Windows.Forms.MessageBox]::Show($owner, $Text, 'llama.cpp Studio', $Buttons, $Icon)
-    } finally {
-        $owner.Dispose()
-    }
 }
 
 # What a click on the balloon does, if anything.

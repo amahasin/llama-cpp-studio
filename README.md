@@ -217,6 +217,7 @@ standalone/
     ├── gate.test.js         the API key as the front door when Studio is not local
     ├── http.test.js         CORS on a wildcard bind, asset caching, CLI validation
     ├── tray.test.js         the tray reports the real state, not a fixed one
+    ├── startup.test.js      the tray hears where the app is, or why not, at once
     ├── update.test.js       updates are verified before they run; start with Windows
     ├── release.test.js      a release ships the app and nothing else; setup compiles
     ├── idle.test.js         an unused model gives its memory back; a busy one does not
@@ -707,6 +708,15 @@ what it said whether or not a router existed.
 
 It reads the session token out of the page the app serves, the same way the
 browser does, and re-reads it if the app restarts and mints a new one.
+
+The tray starts the backend and waits for it to write an endpoint file with
+its URL. The backend writes that file as soon as it is listening, and only
+then starts the router. The first CUDA start after a reboot can take minutes,
+and that wait used to be counted against the app itself. If the app cannot
+start, it writes the reason to the same file and the tray shows it. Only a
+port that is already taken leads to a retry on another port. A backend that
+never answers is stopped along with everything it started, so no half-started
+llama-server is left holding the GPU.
 
 There is one tray per folder. It holds a named mutex derived from the folder's
 path, and a second launch signals the first to open the UI and then exits. The

@@ -108,16 +108,35 @@ function installShutdown(deps) {
   }
 }
 
+// Where a tray that started us waits to hear where we are, or why we are not.
+let endpointFile
+
+/**
+ * Tell the tray that started us why we could not start, through the file it is
+ * already polling. Without this it could only wait out its timeout and say
+ * "could not start", with the reason lost in a console nobody can see.
+ */
+function reportStartFailure(message, code) {
+  if (endpointFile === undefined) return
+  endpoint.write(endpointFile, { error: message, code: code || null, pid: process.pid, version: VERSION })
+}
+
 async function main() {
   const args = options.parse(process.argv.slice(2))
+  endpointFile = args.endpointFile
 
   // --help and --version are pure text and answer anywhere; everything below
   // needs the Windows exec layer.
   if (args.help) { console.log(options.helpText(VERSION)); return }
   if (args.version) { console.log(VERSION); return }
-  if (!requireSupportedPlatform()) { process.exitCode = 1; return }
+  if (!requireSupportedPlatform()) {
+    reportStartFailure('llama.cpp Studio runs on Windows only.')
+    process.exitCode = 1
+    return
+  }
   const problems = options.validate(args)
   if (problems.length > 0) {
+    reportStartFailure(problems.join(' '))
     console.error(problems.join('\n') + '\n')
     console.error(options.helpText(VERSION))
     process.exitCode = 1
@@ -143,19 +162,28 @@ async function main() {
     })
   } catch (err) {
     await manager.shutdown()
+    reportStartFailure(bindFailure(err, args), err && err.code)
     console.error(bindFailure(err, args))
     process.exitCode = 1
     return
   }
 
-  const routerStartError = await autostartRouter(manager, args.autostart)
   const idleUnloader = startIdleUnloader(manager, args.idleUnload, log)
+  installShutdown({ http, manager, idleUnloader, endpointFile: args.endpointFile })
 
+  // The app is up the moment it is listening, so say so now. This used to wait
+  // for the router as well, and llama-server's first CUDA start after a reboot
+  // can take longer than the tray was prepared to wait: the tray then reported
+  // that the whole app had failed, killed it, and tried again into the same wait.
   if (args.endpointFile !== undefined) {
     endpoint.write(args.endpointFile, {
       url: http.url, host: args.host, port: http.port, pid: process.pid, version: VERSION,
     })
   }
+  if (args.open) openBrowser(http.url)
+  log('web UI ready at ' + http.url)
+
+  const routerStartError = await autostartRouter(manager, args.autostart)
 
   console.log(statusBanner({
     version: VERSION,
@@ -165,13 +193,10 @@ async function main() {
     status: await manager.cmd('status', {}),
     routerStartError,
   }))
-
-  if (args.open) openBrowser(http.url)
-
-  installShutdown({ http, manager, idleUnloader, endpointFile: args.endpointFile })
 }
 
 main().catch(function (err) {
+  reportStartFailure(String(err && err.message ? err.message : err))
   console.error('llama.cpp Studio failed to start:')
   console.error(err && err.stack ? err.stack : err)
   process.exit(1)

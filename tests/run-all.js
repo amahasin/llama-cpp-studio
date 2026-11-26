@@ -18,6 +18,7 @@ const SUITES = [
   ['gate.test.js', 'the API key is the front door when Studio is not reached locally'],
   ['http.test.js', 'CORS on a wildcard bind, asset caching, CLI validation, URLs'],
   ['tray.test.js', 'the system tray reports the real server state, not a fixed one'],
+  ['startup.test.js', 'the tray hears where the app is, or why not, without waiting on the router'],
   ['update.test.js', 'tray updates are verified before they run; start with Windows'],
   ['release.test.js', 'a release ships the app and nothing else, and the installer compiles'],
   ['idle.test.js', 'an unused model gives its memory back, a busy one never does'],
